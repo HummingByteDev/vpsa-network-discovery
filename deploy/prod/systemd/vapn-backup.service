@@ -1,0 +1,11 @@
+# Nightly database backup (see vapn-backup.timer, scripts/backup.sh).
+[Unit]
+Description=VAPN database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vapn/deploy/prod
+ExecStart=/opt/vapn/deploy/prod/scripts/backup.sh
+TimeoutStartSec=30m

@@ -1,0 +1,44 @@
+# VAPN edge. Caddy terminates TLS (automatic Let's Encrypt for VAPN_DOMAIN)
+# and exposes exactly what the outside world needs:
+#   /api/v1/*    worker data plane        → coordinator (public)
+#   /admin/v1/*  platform administration  → coordinator (CIDR-allowlisted)
+#   /grafana/*   dashboards               → grafana (only with monitoring profile;
+#                                           remove this block if not running it)
+# Everything else — /metrics, /healthz, postgres, aggregator — is reachable
+# only on the internal Docker network.
+
+{$VAPN_DOMAIN} {
+	encode gzip
+
+	@admin path /admin/v1/*
+	handle @admin {
+		@allowed remote_ip {$VAPN_ADMIN_ALLOW_CIDR}
+		handle @allowed {
+			reverse_proxy coordinator:8080
+		}
+		handle {
+			respond "forbidden" 403
+		}
+	}
+
+	handle /api/v1/* {
+		reverse_proxy coordinator:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle_path /grafana/* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		respond "VAPN — VPS Advisor Probe Network" 200
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 50MiB
+			roll_keep 5
+		}
+	}
+}

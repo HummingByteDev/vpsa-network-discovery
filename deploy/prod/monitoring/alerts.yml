@@ -1,0 +1,82 @@
+# VAPN alert rules. Runbook references: docs/operations/runbooks.md
+groups:
+  - name: vapn-platform
+    rules:
+      - alert: CoordinatorDown
+        expr: up{job="coordinator"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Coordinator is not answering scrapes"
+          runbook: "runbooks.md#coordinator-down"
+
+      - alert: AggregatorDown
+        expr: up{job="aggregator"} == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Aggregator is not answering scrapes"
+          runbook: "runbooks.md#aggregator-down"
+
+      - alert: SnapshotStale
+        # Builder runs every 8h; two consecutive missed builds is an incident.
+        expr: vapn_snapshot_age_seconds > 18 * 3600
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "Published routing snapshot older than 18h — builder failing or gated"
+          runbook: "runbooks.md#snapshot-build-failure"
+
+      - alert: OutboxBacklog
+        # Results should drain within seconds; sustained backlog means the
+        # VPS Advisor Results API is rejecting or unreachable.
+        expr: vapn_outbox_queued > 100
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Publication outbox backing up — pushes to VPS Advisor failing"
+          runbook: "runbooks.md#outbox-backlog"
+
+      - alert: NoActiveWorkers
+        expr: sum(vapn_workers{state="active"}) == 0
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Zero active workers — no measurements are being taken"
+          runbook: "runbooks.md#fleet-loss"
+
+      - alert: FleetShrunk
+        expr: >
+          sum(vapn_workers{state="active"})
+            < 0.5 * (sum(vapn_workers{state="active"} offset 1d) > 0 or vector(1))
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Active fleet less than half of yesterday's size"
+          runbook: "runbooks.md#fleet-loss"
+
+      - alert: SecurityEventSpike
+        expr: sum(rate(vapn_trust_events_total[15m])) * 900 > 50
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Trust/security events spiking (replays, bad signatures, disagreement)"
+          runbook: "runbooks.md#security-event-spike"
+
+      - alert: NoObservationsIngested
+        expr: rate(vapn_observations_ingested_total[10m]) == 0 and sum(vapn_workers{state="active"}) > 0
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Active workers but no observations arriving — data plane broken"
+          runbook: "runbooks.md#data-plane-stalled"
+
+      - alert: HTTPErrorRate
+        expr: >
+          sum(rate(vapn_http_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(vapn_http_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 5% of HTTP requests are 5xx"
+          runbook: "runbooks.md#http-errors"

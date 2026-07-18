@@ -1,0 +1,15 @@
+# One snapshot build. Enable the timer, not this unit:
+#   sudo cp vapn-builder.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vapn-builder.timer
+[Unit]
+Description=VAPN routing snapshot build
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vapn/deploy/prod
+ExecStart=/usr/bin/docker compose run --rm builder
+# Exit 2 = sanity gate held the snapshot for review: alertable, not a crash.
+SuccessExitStatus=0
+TimeoutStartSec=2h

@@ -9,11 +9,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/observation"
+	pmetrics "github.com/HummingByteDev/vpsa-network-discovery/internal/platform/metrics"
 )
 
 // The scheduler (internal/scheduler) generates redundant assignments; this
 // endpoint distributes them: renew, reap expired fleet-wide, then claim under
-// the diversity and self-network rules.
+// the diversity and self-network rules. pmetrics is aliased because a local
+// variable in the COPY closure shadows the package name.
 
 type leaseRequest struct {
 	Capacity int `json:"capacity"`
@@ -41,6 +43,7 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 		req.Capacity = max
 	}
 	workerID := identity(r).ID
+	pmetrics.LeaseRequests.Inc()
 	ctx := r.Context()
 	tx, err := s.reg.Pool.Begin(ctx)
 	if err != nil {
@@ -288,6 +291,8 @@ func (s *Server) uploadObservations(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusInternalServerError, "upload failed")
 		return
 	}
+	pmetrics.ObservationsIngested.Add(float64(len(accepted)))
+	pmetrics.ObservationsRejected.Add(float64(rejected))
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"accepted": len(accepted), "rejected": rejected,
 	})

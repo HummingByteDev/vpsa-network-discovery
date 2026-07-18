@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/metrics"
 )
 
 // DevOperatorID owns workers created through the platform admin API in
@@ -328,6 +330,7 @@ func (s *Store) ApplyDecision(ctx context.Context, workerID, state, reason strin
 
 // RecordTrustEvent appends a discrete trust-affecting event.
 func (s *Store) RecordTrustEvent(ctx context.Context, workerID, eventType, actor string) {
+	metrics.TrustEvents.WithLabelValues(eventType).Inc()
 	_, _ = s.Pool.Exec(ctx, `insert into registry.trust_event (worker_id, event_type, actor)
 		values ($1, $2, $3)`, workerID, eventType, actor)
 }

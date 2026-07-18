@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/coordinator"
@@ -24,6 +26,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		os.Exit(httpserver.SelfCheck(os.Getenv("VAPN_HTTP_ADDR"), ":8080"))
+	}
 	log := logging.New("coordinator")
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -95,6 +100,7 @@ func main() {
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)
+	prometheus.MustRegister(coordinator.NewDBStateCollector(pool))
 	srv.Handle("/api/v1/", api.Handler())
 	srv.Handle("/admin/v1/", api.Handler())
 	if err := srv.Run(ctx); err != nil {

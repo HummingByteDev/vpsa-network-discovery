@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/metrics"
 )
 
 type Config struct {
@@ -171,6 +173,7 @@ func (e *Engine) ComputeWindow(ctx context.Context, windowStart time.Time) error
 	if err != nil {
 		return fmt.Errorf("worker agreement: %w", err)
 	}
+	metrics.WindowsComputed.Inc()
 	return nil
 }
 

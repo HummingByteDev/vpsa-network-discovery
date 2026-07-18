@@ -30,6 +30,10 @@ func main() {
 	advisorURL := cfg.String("ADVISOR_URL", "http://localhost:8081")
 	advisorToken := cfg.Require("ADVISOR_TOKEN")
 	dbWait := cfg.Duration("DB_WAIT", 60*time.Second)
+	// When RIS_BVIEW_URL is set the builder downloads the bview itself
+	// (production); unset means the file is provided out of band (dev).
+	bviewURL := cfg.String("RIS_BVIEW_URL", "")
+	bviewMaxAge := cfg.Duration("RIS_BVIEW_MAX_AGE", 6*time.Hour)
 	bcfg := builder.Config{
 		BviewPath:             cfg.String("RIS_BVIEW_PATH", "data/ripe/latest-bview.gz"),
 		CityMMDB:              cfg.String("GEOIP_CITY_MMDB", ""),
@@ -70,6 +74,11 @@ func main() {
 		pub = &artifact.Publisher{Pool: pool, Store: store, Key: key,
 			MinWorkerVersion: minWorkerVersion, Log: log}
 		log.Info("artifact publication enabled", "public_key", artifact.PublicKeyBase64(key))
+	}
+
+	if err := builder.EnsureBview(ctx, bviewURL, bcfg.BviewPath, bviewMaxAge, log); err != nil {
+		log.Error("bview download failed", "error", err)
+		os.Exit(1)
 	}
 
 	b := builder.New(bcfg, pool, advisor.New(advisorURL, advisorToken), pub, log)

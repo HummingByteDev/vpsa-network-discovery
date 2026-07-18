@@ -1,0 +1,10 @@
+[Unit]
+Description=VAPN nightly backup schedule
+
+[Timer]
+OnCalendar=*-*-* 03:15 UTC
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,411 @@
+{
+ "uid": "vapn-fleet",
+ "title": "VAPN Fleet",
+ "schemaVersion": 39,
+ "tags": [
+  "vapn"
+ ],
+ "timezone": "browser",
+ "refresh": "30s",
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 1,
+   "title": "Workers by state",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 12,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "sum by (state) (vapn_workers)",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "{{state}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 2,
+   "title": "Snapshot age",
+   "type": "stat",
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 6,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "vapn_snapshot_age_seconds",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "yellow",
+        "value": 36000
+       },
+       {
+        "color": "red",
+        "value": 64800
+       }
+      ]
+     }
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 3,
+   "title": "Probe targets",
+   "type": "stat",
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 6,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "vapn_snapshot_targets",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 4,
+   "title": "Observations ingested /s",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 0,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "rate(vapn_observations_ingested_total[5m])",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "ingested"
+    },
+    {
+     "expr": "rate(vapn_observations_rejected_total[5m])",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "rejected"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 5,
+   "title": "Assignments & leases",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 12,
+    "y": 8,
+    "w": 12,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "vapn_assignments_active",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "assignments"
+    },
+    {
+     "expr": "vapn_leases_live",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "live leases"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 6,
+   "title": "Outbox queued",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 0,
+    "y": 16,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "vapn_outbox_queued",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 7,
+   "title": "Outbox pushes /s",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 8,
+    "y": 16,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "sum by (kind, outcome) (rate(vapn_outbox_push_total[5m]))",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "{{kind}} {{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 8,
+   "title": "Trust events /s",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 16,
+    "y": 16,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "sum by (type) (rate(vapn_trust_events_total[5m]))",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "{{type}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 9,
+   "title": "HTTP 5xx ratio",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "sum(rate(vapn_http_requests_total{code=~\"5..\"}[5m])) / clamp_min(sum(rate(vapn_http_requests_total[5m])), 0.001)",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 10,
+   "title": "Request p95 latency by route",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 8,
+    "y": 24,
+    "w": 16,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (route, le) (rate(vapn_http_request_duration_seconds_bucket[5m])))",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     },
+     "legendFormat": "{{route}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 11,
+   "title": "Consensus windows /min",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 0,
+    "y": 32,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "rate(vapn_consensus_windows_total[10m]) * 60",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  },
+  {
+   "id": 12,
+   "title": "Lease requests /s",
+   "type": "timeseries",
+   "gridPos": {
+    "x": 8,
+    "y": 32,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "vapn-prom"
+   },
+   "targets": [
+    {
+     "expr": "rate(vapn_lease_requests_total[5m])",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "vapn-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   }
+  }
+ ]
+}

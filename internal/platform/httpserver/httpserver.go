@@ -8,11 +8,33 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/metrics"
 )
+
+// SelfCheck probes this process's own /healthz — the container healthcheck
+// entrypoint for distroless images, which have no shell or curl. Returns a
+// process exit code (0 healthy, 1 not).
+func SelfCheck(addr, fallback string) int {
+	if addr == "" {
+		addr = fallback
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://127.0.0.1" + addr + "/healthz")
+	if err != nil {
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
 
 type ReadyCheck func(ctx context.Context) error
 
@@ -67,12 +89,31 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ready"))
 }
 
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
 func (s *Server) logged(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		h.ServeHTTP(w, r)
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		h.ServeHTTP(rec, r)
+		// r.Pattern is set by the innermost ServeMux that matched, keeping
+		// metric cardinality bounded to registered routes.
+		route := r.Pattern
+		if route == "" {
+			route = "unmatched"
+		}
+		metrics.HTTPRequests.WithLabelValues(route, strconv.Itoa(rec.status)).Inc()
+		metrics.HTTPDuration.WithLabelValues(route).Observe(time.Since(start).Seconds())
 		s.log.Debug("request",
-			"method", r.Method, "path", r.URL.Path,
+			"method", r.Method, "path", r.URL.Path, "status", rec.status,
 			"remote", r.RemoteAddr, "duration_ms", time.Since(start).Milliseconds())
 	})
 }

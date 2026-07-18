@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/metrics"
 )
 
 type Publisher struct {
@@ -60,6 +61,7 @@ func (p *Publisher) DrainOnce(ctx context.Context) (pushed int, err error) {
 	for _, it := range items {
 		pushErr := p.push(ctx, it.kind, it.payload)
 		if pushErr == nil {
+			metrics.OutboxPush.WithLabelValues(it.kind, "ok").Inc()
 			if _, err := tx.Exec(ctx, `update aggregation.publication_outbox
 				set acked_at = now(), attempts = attempts + 1 where id = $1`, it.id); err != nil {
 				return pushed, err
@@ -67,6 +69,7 @@ func (p *Publisher) DrainOnce(ctx context.Context) (pushed int, err error) {
 			pushed++
 			continue
 		}
+		metrics.OutboxPush.WithLabelValues(it.kind, "error").Inc()
 		p.Log.Warn("publication failed; backing off", "kind", it.kind, "id", it.id, "error", pushErr)
 		if _, err := tx.Exec(ctx, `update aggregation.publication_outbox
 			set attempts = attempts + 1,

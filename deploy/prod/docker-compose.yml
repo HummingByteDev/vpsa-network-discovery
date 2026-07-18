@@ -1,0 +1,184 @@
+# VAPN production deployment — single VM, Docker Compose, Caddy in front.
+# Official supported v1 topology (docs/operations/deployment.md).
+#
+#   cp .env.example .env   # fill in every value
+#   docker compose up -d
+#
+# Only Caddy publishes ports. The coordinator is the sole public service
+# (workers talk to it); aggregator and postgres stay on the internal network.
+# The routing builder runs on a schedule via systemd timer (see systemd/).
+name: vapn
+
+x-image: &image-defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-build: &platform-build
+  context: ../..
+  dockerfile: Dockerfile
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    <<: *image-defaults
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      VAPN_DOMAIN: ${VAPN_DOMAIN}
+      VAPN_ADMIN_ALLOW_CIDR: ${VAPN_ADMIN_ALLOW_CIDR:-127.0.0.1/32}
+    depends_on: [coordinator]
+
+  postgres:
+    image: postgres:16-alpine
+    <<: *image-defaults
+    environment:
+      POSTGRES_USER: vapn
+      POSTGRES_PASSWORD: ${VAPN_DB_PASSWORD}
+      POSTGRES_DB: vapn
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vapn -d vapn"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  migrate:
+    image: ${VAPN_IMAGE_PREFIX:-ghcr.io/hummingbytedev/vapn}-migrate:${VAPN_VERSION:-latest}
+    build: { <<: *platform-build, args: { COMPONENT: migrate } }
+    environment:
+      VAPN_DB_DSN: postgres://vapn:${VAPN_DB_PASSWORD}@postgres:5432/vapn
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  coordinator:
+    image: ${VAPN_IMAGE_PREFIX:-ghcr.io/hummingbytedev/vapn}-coordinator:${VAPN_VERSION:-latest}
+    build: { <<: *platform-build, args: { COMPONENT: coordinator } }
+    <<: *image-defaults
+    read_only: true
+    environment:
+      VAPN_HTTP_ADDR: ":8080"
+      VAPN_DB_DSN: postgres://vapn:${VAPN_DB_PASSWORD}@postgres:5432/vapn
+      VAPN_ADMIN_TOKEN: ${VAPN_ADMIN_TOKEN}
+      VAPN_ARTIFACT_S3_ENDPOINT: ${VAPN_ARTIFACT_S3_ENDPOINT}
+      VAPN_ARTIFACT_S3_REGION: ${VAPN_ARTIFACT_S3_REGION:-}
+      VAPN_ARTIFACT_S3_BUCKET: ${VAPN_ARTIFACT_S3_BUCKET:-vapn-artifacts}
+      VAPN_ARTIFACT_S3_ACCESS_KEY: ${VAPN_ARTIFACT_S3_ACCESS_KEY}
+      VAPN_ARTIFACT_S3_SECRET_KEY: ${VAPN_ARTIFACT_S3_SECRET_KEY}
+      VAPN_ARTIFACT_S3_USE_SSL: "true"
+      VAPN_ADVISOR_URL: ${VAPN_ADVISOR_URL}
+      VAPN_ADVISOR_TOKEN: ${VAPN_ADVISOR_TOKEN}
+      VAPN_GEOIP_ASN_MMDB: /geoip/GeoLite2-ASN.mmdb
+    volumes:
+      - ${VAPN_GEOIP_DIR:-./geoip}:/geoip:ro
+    healthcheck:
+      test: ["CMD", "/coordinator", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  aggregator:
+    image: ${VAPN_IMAGE_PREFIX:-ghcr.io/hummingbytedev/vapn}-aggregator:${VAPN_VERSION:-latest}
+    build: { <<: *platform-build, args: { COMPONENT: aggregator } }
+    <<: *image-defaults
+    read_only: true
+    environment:
+      VAPN_HTTP_ADDR: ":8082"
+      VAPN_DB_DSN: postgres://vapn:${VAPN_DB_PASSWORD}@postgres:5432/vapn
+      VAPN_ADVISOR_URL: ${VAPN_ADVISOR_URL}
+      VAPN_ADVISOR_TOKEN: ${VAPN_ADVISOR_TOKEN}
+    healthcheck:
+      test: ["CMD", "/aggregator", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  # Snapshot builder: NOT long-running. Triggered by systemd/vapn-builder.timer
+  # (or manually: docker compose run --rm builder). Downloads the RIS bview to
+  # its work volume, then extracts/enriches/publishes.
+  builder:
+    image: ${VAPN_IMAGE_PREFIX:-ghcr.io/hummingbytedev/vapn}-builder:${VAPN_VERSION:-latest}
+    build: { <<: *platform-build, args: { COMPONENT: builder } }
+    profiles: [build]
+    environment:
+      VAPN_DB_DSN: postgres://vapn:${VAPN_DB_PASSWORD}@postgres:5432/vapn
+      VAPN_ADVISOR_URL: ${VAPN_ADVISOR_URL}
+      VAPN_ADVISOR_TOKEN: ${VAPN_ADVISOR_TOKEN}
+      VAPN_RIS_BVIEW_PATH: /work/latest-bview.gz
+      VAPN_RIS_BVIEW_URL: ${VAPN_RIS_BVIEW_URL:-https://data.ris.ripe.net/rrc00/latest-bview.gz}
+      VAPN_GEOIP_CITY_MMDB: /geoip/GeoLite2-City.mmdb
+      VAPN_ARTIFACT_S3_ENDPOINT: ${VAPN_ARTIFACT_S3_ENDPOINT}
+      VAPN_ARTIFACT_S3_REGION: ${VAPN_ARTIFACT_S3_REGION:-}
+      VAPN_ARTIFACT_S3_BUCKET: ${VAPN_ARTIFACT_S3_BUCKET:-vapn-artifacts}
+      VAPN_ARTIFACT_S3_ACCESS_KEY: ${VAPN_ARTIFACT_S3_ACCESS_KEY}
+      VAPN_ARTIFACT_S3_SECRET_KEY: ${VAPN_ARTIFACT_S3_SECRET_KEY}
+      VAPN_ARTIFACT_S3_USE_SSL: "true"
+      VAPN_SNAPSHOT_SIGNING_KEY: ${VAPN_SNAPSHOT_SIGNING_KEY}
+    volumes:
+      - builder_work:/work
+      - ${VAPN_GEOIP_DIR:-./geoip}:/geoip:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  # GeoIP updater (bring-your-own MaxMind license key; runs twice weekly).
+  # Writes GeoLite2-City + GeoLite2-ASN into the shared geoip directory.
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:latest
+    profiles: [geoip]
+    <<: *image-defaults
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-City GeoLite2-ASN
+      GEOIPUPDATE_FREQUENCY: "72"
+    volumes:
+      - ${VAPN_GEOIP_DIR:-./geoip}:/usr/share/GeoIP
+
+  # --- optional monitoring profile: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: [monitoring]
+    <<: *image-defaults
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prom_data:/prometheus
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    profiles: [monitoring]
+    <<: *image-defaults
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${VAPN_GRAFANA_PASSWORD:-admin}
+      GF_SERVER_ROOT_URL: https://${VAPN_DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./monitoring/grafana-datasource.yml:/etc/grafana/provisioning/datasources/vapn.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/vapn.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  builder_work:
+  prom_data:
+  grafana_data:

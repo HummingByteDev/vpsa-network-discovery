@@ -20,6 +20,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		os.Exit(httpserver.SelfCheck(os.Getenv("VAPN_HTTP_ADDR"), ":8082"))
+	}
 	log := logging.New("aggregator")
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

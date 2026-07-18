@@ -84,6 +84,11 @@ func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger
 	mux.Handle("POST /admin/v1/workers/{id}/rotate-key", s.admin(s.adminRequestRotation))
 	mux.Handle("POST /admin/v1/scheduler/pause", s.admin(s.adminPause(true)))
 	mux.Handle("POST /admin/v1/scheduler/resume", s.admin(s.adminPause(false)))
+	mux.Handle("GET /admin/v1/overview", s.admin(s.adminOverview))
+	mux.Handle("GET /admin/v1/workers/{id}", s.admin(s.adminWorkerDetail))
+	mux.Handle("GET /admin/v1/snapshots", s.admin(s.adminListSnapshots))
+	mux.Handle("POST /admin/v1/snapshots/{version}/rollback", s.admin(s.adminRollbackSnapshot))
+	mux.Handle("GET /admin/v1/audit", s.admin(s.adminAudit))
 	s.handler = mux
 	return s
 }
@@ -332,6 +337,14 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	id := identity(r)
 	writeJSON(w, http.StatusOK, map[string]string{"worker_id": id.ID, "state": id.State})
+}
+
+// invalidateManifestCache drops the cached manifest so the next heartbeat
+// sees a rollback/publish immediately instead of after the poll TTL.
+func (s *Server) invalidateManifestCache() {
+	s.manifest.Lock()
+	s.manifest.cached = nil
+	s.manifest.Unlock()
 }
 
 // currentManifestCached fetches the store's current manifest with a small TTL

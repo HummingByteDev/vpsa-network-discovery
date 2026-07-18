@@ -17,7 +17,11 @@ type Logger struct {
 }
 
 // Event records one audit entry. detail must marshal to JSON (nil is fine).
+// A nil Logger discards events (tests, components without an audit sink).
 func (a *Logger) Event(ctx context.Context, category, actor, action, subject string, detail any) {
+	if a == nil {
+		return
+	}
 	raw := []byte("{}")
 	if detail != nil {
 		if b, err := json.Marshal(detail); err == nil {
