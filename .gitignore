@@ -1,0 +1,6 @@
+data/
+/bin/
+*.test
+.env
+.env.*
+!.env.example
