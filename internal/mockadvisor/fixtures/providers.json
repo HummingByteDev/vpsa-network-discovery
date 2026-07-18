@@ -1,0 +1,44 @@
+{
+  "providers": [
+    {
+      "provider_id": "0d4b1f3a-9c1e-4f7a-8b2d-111111111111",
+      "name": "Hetzner Online",
+      "asns": [24940],
+      "monitoring_enabled": true,
+      "priority": 10,
+      "updated_at": "2026-07-01T00:00:00Z"
+    },
+    {
+      "provider_id": "0d4b1f3a-9c1e-4f7a-8b2d-222222222222",
+      "name": "OVHcloud",
+      "asns": [16276],
+      "monitoring_enabled": true,
+      "priority": 10,
+      "updated_at": "2026-07-01T00:00:00Z"
+    },
+    {
+      "provider_id": "0d4b1f3a-9c1e-4f7a-8b2d-333333333333",
+      "name": "DigitalOcean",
+      "asns": [14061],
+      "monitoring_enabled": true,
+      "priority": 20,
+      "updated_at": "2026-07-05T00:00:00Z"
+    },
+    {
+      "provider_id": "0d4b1f3a-9c1e-4f7a-8b2d-444444444444",
+      "name": "Contabo",
+      "asns": [51167],
+      "monitoring_enabled": true,
+      "priority": 30,
+      "updated_at": "2026-07-10T00:00:00Z"
+    },
+    {
+      "provider_id": "0d4b1f3a-9c1e-4f7a-8b2d-555555555555",
+      "name": "Opted-Out Host",
+      "asns": [64500],
+      "monitoring_enabled": false,
+      "priority": 100,
+      "updated_at": "2026-07-15T00:00:00Z"
+    }
+  ]
+}

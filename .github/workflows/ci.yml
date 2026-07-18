@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cnip
+          POSTGRES_PASSWORD: cnip-dev
+          POSTGRES_DB: cnip
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cnip -d cnip"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Vet
+        run: go vet ./...
+      - name: Test (includes DB integration tests)
+        env:
+          CNIP_TEST_DB_DSN: postgres://cnip:cnip-dev@localhost:5432/cnip
+        run: go test ./...
+      - name: Build
+        run: go build -o bin/ ./cmd/...
+      - name: Apply migrations against a fresh database
+        env:
+          CNIP_DB_DSN: postgres://cnip:cnip-dev@localhost:5432/cnip
+        run: ./bin/migrate
+      - name: Migrations are idempotent
+        env:
+          CNIP_DB_DSN: postgres://cnip:cnip-dev@localhost:5432/cnip
+        run: ./bin/migrate

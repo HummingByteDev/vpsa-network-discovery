@@ -1,0 +1,85 @@
+# Local development environment. From the repo root:
+#   docker compose -f deploy/compose/dev.compose.yaml up -d
+name: cnip-dev
+
+x-build: &platform-build
+  context: ../..
+  dockerfile: Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cnip
+      POSTGRES_PASSWORD: cnip-dev
+      POSTGRES_DB: cnip
+    ports: ["5433:5432"]   # host 5433: avoids clashing with a locally installed postgres
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cnip -d cnip"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: cnip
+      MINIO_ROOT_PASSWORD: cnip-dev-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 cnip cnip-dev-secret &&
+      mc mb --ignore-existing local/cnip-artifacts &&
+      echo artifact bucket ready"
+
+  migrate:
+    build: { <<: *platform-build, args: { COMPONENT: migrate } }
+    environment:
+      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  mockadvisor:
+    build: { <<: *platform-build, args: { COMPONENT: mockadvisor } }
+    environment:
+      CNIP_HTTP_ADDR: ":8081"
+      CNIP_ADVISOR_TOKEN: dev-advisor-token
+    ports: ["8081:8081"]
+
+  coordinator:
+    build: { <<: *platform-build, args: { COMPONENT: coordinator } }
+    environment:
+      CNIP_HTTP_ADDR: ":8080"
+      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  aggregator:
+    build: { <<: *platform-build, args: { COMPONENT: aggregator } }
+    environment:
+      CNIP_HTTP_ADDR: ":8082"
+      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+    ports: ["8082:8082"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
+  miniodata:
