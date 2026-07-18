@@ -23,7 +23,7 @@ import (
 )
 
 // End-to-end pipeline test against a real database. Gated on VAPN_TEST_DB_DSN
-// (CI sets it; locally: postgres://vapn:vapn-dev@localhost:5433/vapn).
+// (CI sets it; locally: postgres://vapn:vapn-dev@localhost:5433/vapn_test).
 // The test uses its own schemas-per-run? No — it truncates the routing schema,
 // so never point it at a database whose routing data you care about.
 

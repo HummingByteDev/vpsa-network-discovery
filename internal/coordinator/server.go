@@ -77,6 +77,7 @@ func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger
 	mux.Handle("POST /api/v1/assignments/release", s.signed(s.releaseAssignments))
 	mux.Handle("POST /api/v1/observations", s.signed(s.uploadObservations))
 	mux.Handle("POST /api/v1/workers/keys/rotate", s.signed(s.rotateKey))
+	mux.Handle("POST /api/v1/workers/retire", s.signed(s.selfRetire))
 
 	mux.Handle("POST /admin/v1/workers", s.admin(s.adminCreateWorker))
 	mux.Handle("GET /admin/v1/workers", s.admin(s.adminListWorkers))
@@ -337,6 +338,19 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	id := identity(r)
 	writeJSON(w, http.StatusOK, map[string]string{"worker_id": id.ID, "state": id.State})
+}
+
+// selfRetire lets an operator permanently deregister their own worker
+// (vapn unregister/uninstall). Terminal: keys are revoked, leases released,
+// re-joining means enrolling as a new worker.
+func (s *Server) selfRetire(w http.ResponseWriter, r *http.Request) {
+	id := identity(r)
+	if err := s.reg.SetState(r.Context(), id.ID, "retired", "operator requested", "worker"); err != nil {
+		problem(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.audit.Event(r.Context(), "lifecycle", "worker:"+id.ID, "self_retire", id.ID, nil)
+	writeJSON(w, http.StatusOK, map[string]string{"state": "retired"})
 }
 
 // invalidateManifestCache drops the cached manifest so the next heartbeat

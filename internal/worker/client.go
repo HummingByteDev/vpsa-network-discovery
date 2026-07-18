@@ -128,6 +128,12 @@ func (c *Client) RotateKey(ctx context.Context, nextPub ed25519.PublicKey) error
 	}, nil)
 }
 
+// Retire permanently deregisters this worker (terminal; used by the vapn
+// CLI's unregister/uninstall).
+func (c *Client) Retire(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/workers/retire", struct{}{}, nil)
+}
+
 // Assignment is one probing instruction leased from the coordinator.
 type Assignment struct {
 	ID              int64           `json:"assignment_id"`

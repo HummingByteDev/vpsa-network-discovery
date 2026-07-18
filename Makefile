@@ -8,8 +8,16 @@ COMPOSE := docker compose -f deploy/compose/dev.compose.yaml
 build:
 	$(GO) build -ldflags '$(LDFLAGS)' -o bin/ ./cmd/...
 
+# -p 1: DB integration tests share one database. The default DSN targets the
+# dev stack's *vapn_test* database (created by `make test-db`), never the live
+# dev `vapn` database — the tests truncate and reshape what they touch.
 test:
-	$(GO) test -p 1 ./...   # -p 1: DB integration tests share one database
+	VAPN_TEST_DB_DSN=$${VAPN_TEST_DB_DSN:-postgres://vapn:vapn-dev@localhost:5433/vapn_test} \
+	$(GO) test -p 1 ./...
+
+test-db:
+	docker exec vapn-dev-postgres-1 psql -U vapn -d postgres \
+	  -c "create database vapn_test owner vapn" 2>/dev/null || true
 
 vet:
 	$(GO) vet ./...

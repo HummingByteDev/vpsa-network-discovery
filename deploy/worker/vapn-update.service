@@ -1,0 +1,14 @@
+# Automatic worker updates (pairs with vapn-update.timer).
+#   sudo cp vapn-update.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vapn-update.timer
+# Replace User= with the account that ran `vapn install`.
+[Unit]
+Description=VAPN worker auto-update
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=vapn
+ExecStart=/usr/local/bin/vapn update --auto
+TimeoutStartSec=15m

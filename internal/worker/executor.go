@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,22 @@ type Executor struct {
 	queue   chan observation.Observation
 	mu      sync.Mutex
 	running map[int64]context.CancelFunc
+
+	// Self-reporting for status.json (read by the vapn CLI).
+	submitted    atomic.Uint64
+	lastUploadAt atomic.Int64 // unix millis
+	lastUploadMS atomic.Int64
+}
+
+// Stats snapshots the executor's self-reported counters.
+func (e *Executor) Stats() (assignments int, submitted uint64, lastUpload time.Time, lastMS int64, queueDepth int) {
+	e.mu.Lock()
+	assignments = len(e.running)
+	e.mu.Unlock()
+	if ms := e.lastUploadAt.Load(); ms > 0 {
+		lastUpload = time.UnixMilli(ms).UTC()
+	}
+	return assignments, e.submitted.Load(), lastUpload, e.lastUploadMS.Load(), len(e.queue)
 }
 
 func NewExecutor(client *Client, registry probe.Registry, key ed25519.PrivateKey, state State, log *slog.Logger) *Executor {
@@ -203,10 +220,14 @@ func (e *Executor) uploader(ctx context.Context) {
 				n = 256
 			}
 			batch := pending[:n]
+			uploadStart := time.Now()
 			if err := e.client.UploadObservations(flushCtx, uuid.NewString(), batch); err != nil {
 				e.log.Warn("observation upload failed; will retry", "count", len(pending), "error", err)
 				return
 			}
+			e.submitted.Add(uint64(n))
+			e.lastUploadAt.Store(time.Now().UnixMilli())
+			e.lastUploadMS.Store(time.Since(uploadStart).Milliseconds())
 			e.log.Info("observations uploaded", "count", n)
 			pending = pending[n:]
 		}

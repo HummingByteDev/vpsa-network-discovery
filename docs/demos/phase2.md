@@ -74,7 +74,7 @@ artifact export of the published snapshot is Phase 3.
 
 ```sh
 make test                                  # golden-file MRT tests, bogon table tests
-VAPN_TEST_DB_DSN=postgres://vapn:vapn-dev@localhost:5433/vapn make test   # + end-to-end pipeline
+make test   # DB tests run against vapn_test (make test-db once)   # + end-to-end pipeline
 ```
 
 The golden-file tests build a synthetic bview (via gobgp serialization) with

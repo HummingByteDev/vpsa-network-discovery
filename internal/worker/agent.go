@@ -113,6 +113,7 @@ func (a *Agent) tick(ctx context.Context) {
 		a.log.Warn("heartbeat failed", "error", err)
 		return
 	}
+	a.writeStatus(hb.State)
 	switch hb.State {
 	case "pending":
 		a.log.Info("awaiting approval")
@@ -140,6 +141,26 @@ func (a *Agent) tick(ctx context.Context) {
 		a.executorStop = cancel
 		go a.executor.Run(execCtx)
 		a.log.Info("probe executor started")
+	}
+}
+
+// writeStatus refreshes <state>/status.json — the contract with the host
+// vapn CLI. Best-effort: a failed write never disturbs measurement.
+func (a *Agent) writeStatus(state string) {
+	st := Status{
+		WorkerID:        a.client.WorkerID,
+		State:           state,
+		SoftwareVersion: version.Version,
+		CoordinatorURL:  a.cfg.CoordinatorURL,
+		SnapshotVersion: a.state.SnapshotVersion(),
+		LastHeartbeatAt: time.Now().UTC(),
+	}
+	if a.executor != nil {
+		st.Assignments, st.MeasurementsSubmitted, st.LastUploadAt,
+			st.LastUploadMillis, st.QueueDepth = a.executor.Stats()
+	}
+	if err := a.state.WriteStatus(st); err != nil {
+		a.log.Warn("status write failed", "error", err)
 	}
 }
 
