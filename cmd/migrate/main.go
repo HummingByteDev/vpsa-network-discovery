@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vpsadvisor/ip-discovery/internal/platform/config"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/db"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/logging"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/migrate"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/migrate"
 )
 
 func main() {

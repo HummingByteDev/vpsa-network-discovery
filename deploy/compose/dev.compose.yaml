@@ -89,10 +89,33 @@ services:
     environment:
       CNIP_HTTP_ADDR: ":8080"
       CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+      CNIP_ADMIN_TOKEN: dev-admin-token
+      CNIP_DEV_ENROLLMENT_TOKEN: dev-worker-token   # dev only: auto-enroll + auto-approve
+      CNIP_ARTIFACT_S3_ENDPOINT: minio:9000
+      CNIP_ARTIFACT_S3_ACCESS_KEY: cnip
+      CNIP_ARTIFACT_S3_SECRET_KEY: cnip-dev-secret
+      CNIP_ARTIFACT_S3_USE_SSL: "false"
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+
+  # Community worker fleet (3 replicas). Each replica generates its own
+  # keypair, auto-enrolls with the dev token, and converges on the current
+  # snapshot. CNIP_SNAPSHOT_PUBLIC_KEY must match the builder's signing key
+  # (./bin/keygen output, exported in the host environment).
+  worker:
+    build: { <<: *platform-build, args: { COMPONENT: worker } }
+    deploy: { replicas: 3 }
+    environment:
+      CNIP_COORDINATOR_URL: http://coordinator:8080
+      CNIP_ENROLLMENT_TOKEN: dev-worker-token
+      CNIP_STATE_DIR: /tmp/state          # ephemeral in dev; a volume in production
+      CNIP_HEARTBEAT_INTERVAL: 5s
+      CNIP_SNAPSHOT_PUBLIC_KEY: ${CNIP_SNAPSHOT_PUBLIC_KEY:-}
+    depends_on:
+      coordinator: { condition: service_started }
 
   aggregator:
     build: { <<: *platform-build, args: { COMPONENT: aggregator } }

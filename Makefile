@@ -1,6 +1,6 @@
 GO      ?= go
-LDFLAGS := -X github.com/vpsadvisor/ip-discovery/internal/platform/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev) \
-           -X github.com/vpsadvisor/ip-discovery/internal/platform/version.Commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -X github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version.Version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev) \
+           -X github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version.Commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 COMPOSE := docker compose -f deploy/compose/dev.compose.yaml
 
 .PHONY: build test vet tidy check migrate dev-up dev-down dev-logs

@@ -10,7 +10,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/vpsadvisor/ip-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 )
 
 func readPointer(t *testing.T, root string) artifact.Pointer {

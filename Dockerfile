@@ -13,8 +13,8 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 RUN CGO_ENABLED=0 go build \
       -ldflags "-s -w \
-        -X github.com/vpsadvisor/ip-discovery/internal/platform/version.Version=${VERSION} \
-        -X github.com/vpsadvisor/ip-discovery/internal/platform/version.Commit=${COMMIT}" \
+        -X github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version.Version=${VERSION} \
+        -X github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version.Commit=${COMMIT}" \
       -o /out/app ./cmd/${COMPONENT}
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime

@@ -1,20 +1,22 @@
-// Command coordinator is the worker-facing data-plane API and scheduler.
-// Phase 1 ships the service shell (config, DB connectivity, health/readiness,
-// metrics); the worker API arrives in Phase 4, the scheduler in Phase 7.
+// Command coordinator is the worker-facing data-plane API: registration,
+// heartbeats, artifact advertisement/download, and the platform admin
+// surface. Scheduler and observation intake land in Phases 5–7.
 package main
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/vpsadvisor/ip-discovery/internal/platform/config"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/db"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/httpserver"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/coordinator"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/registry"
 )
 
 func main() {
@@ -26,11 +28,17 @@ func main() {
 	addr := cfg.String("HTTP_ADDR", ":8080")
 	dsn := cfg.Require("DB_DSN")
 	dbWait := cfg.Duration("DB_WAIT", 60*time.Second)
+	adminToken := cfg.Require("ADMIN_TOKEN")
+	devToken := cfg.String("DEV_ENROLLMENT_TOKEN", "")
+	store, storeErr := artifact.StoreFromConfig(cfg)
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
 		os.Exit(1)
 	}
 	cfg.Dump(log)
+	if devToken != "" {
+		log.Warn("dev auto-enrollment is enabled; never use this in production")
+	}
 
 	pool, err := db.WaitAndConnect(ctx, dsn, dbWait)
 	if err != nil {
@@ -39,11 +47,24 @@ func main() {
 	}
 	defer pool.Close()
 
+	if storeErr != nil {
+		log.Error("artifact store misconfigured", "error", storeErr)
+		os.Exit(1)
+	}
+	if store == nil {
+		log.Error("artifact store required: set CNIP_ARTIFACT_S3_ENDPOINT or CNIP_ARTIFACT_DIR")
+		os.Exit(1)
+	}
+
+	api := coordinator.New(coordinator.Config{
+		AdminToken:         adminToken,
+		DevEnrollmentToken: devToken,
+	}, &registry.Store{Pool: pool}, store, log)
+
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)
-	srv.Handle("/api/v1/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "coordinator API lands in Phase 4", http.StatusNotImplemented)
-	}))
+	srv.Handle("/api/v1/", api.Handler())
+	srv.Handle("/admin/v1/", api.Handler())
 	if err := srv.Run(ctx); err != nil {
 		log.Error("server error", "error", err)
 		os.Exit(1)

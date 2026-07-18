@@ -71,6 +71,7 @@ type S3Config struct {
 	AccessKey string
 	SecretKey string
 	Bucket    string
+	Region    string // optional: AWS requires it, Cloudflare R2 uses "auto"
 	UseSSL    bool
 }
 
@@ -79,6 +80,7 @@ func NewS3Store(cfg S3Config) (*S3Store, error) {
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
+		Region: cfg.Region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("s3 client: %w", err)

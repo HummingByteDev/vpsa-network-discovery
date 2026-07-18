@@ -16,11 +16,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/vpsadvisor/ip-discovery/internal/advisor"
-	"github.com/vpsadvisor/ip-discovery/internal/artifact"
-	"github.com/vpsadvisor/ip-discovery/internal/routing/bogon"
-	"github.com/vpsadvisor/ip-discovery/internal/routing/geo"
-	"github.com/vpsadvisor/ip-discovery/internal/routing/mrtreader"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/routing/bogon"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/routing/geo"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/routing/mrtreader"
 )
 
 type Config struct {

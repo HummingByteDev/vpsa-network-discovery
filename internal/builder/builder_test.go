@@ -16,10 +16,10 @@ import (
 	"github.com/osrg/gobgp/v3/pkg/packet/bgp"
 	"github.com/osrg/gobgp/v3/pkg/packet/mrt"
 
-	"github.com/vpsadvisor/ip-discovery/internal/advisor"
-	"github.com/vpsadvisor/ip-discovery/internal/artifact"
-	"github.com/vpsadvisor/ip-discovery/internal/mockadvisor"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/migrate"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/mockadvisor"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/migrate"
 )
 
 // End-to-end pipeline test against a real database. Gated on CNIP_TEST_DB_DSN

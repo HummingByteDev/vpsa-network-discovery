@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vpsadvisor/ip-discovery/internal/platform/version"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version"
 )
 
 func New(service string) *slog.Logger {

@@ -7,10 +7,13 @@ the VPS Advisor website — see `CLAUDE.md` for the full project brief.
 
 ## Status
 
-Phases 1 (Architecture & Foundation), 2 (Routing Snapshot Builder), and
-3 (Snapshot Distribution) — complete. See the
+Phases 1–4 complete: Architecture & Foundation, Routing Snapshot Builder,
+Snapshot Distribution, Worker Framework. See the
 [roadmap](docs/architecture/09-roadmap.md) for what comes next, and
 [docs/demos/](docs/demos/) for runnable per-phase walkthroughs.
+
+Repository: `github.com/HummingByteDev/vpsa-network-discovery`
+(private until deployment checks pass).
 
 ## Layout
 

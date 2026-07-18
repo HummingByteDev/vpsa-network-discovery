@@ -48,10 +48,20 @@ Two supported topologies, same images:
   downloads.
 
 Artifact store, production: **Backblaze B2** (decision 2026-07-18) via its
-S3-compatible API — the platform's S3 client works unchanged
-(`CNIP_ARTIFACT_S3_ENDPOINT=s3.<region>.backblazeb2.com`, B2 application key as
-access/secret pair). Pair with a CDN (e.g. Cloudflare, free egress from B2) for
-worker downloads at scale. Local dev uses minio, same protocol.
+S3-compatible API. The store configuration is deliberately provider-agnostic —
+switching S3 providers is an environment change only (decision 2026-07-18),
+never a code change:
+
+| Provider | `CNIP_ARTIFACT_S3_ENDPOINT` | Notes |
+|---|---|---|
+| Backblaze B2 | `s3.<region>.backblazeb2.com` | application key ID/secret as access/secret |
+| Cloudflare R2 | `<account-id>.r2.cloudflarestorage.com` | set `CNIP_ARTIFACT_S3_REGION=auto` |
+| AWS S3 | `s3.<region>.amazonaws.com` | set `CNIP_ARTIFACT_S3_REGION` |
+| minio (dev) | `localhost:9000` | `CNIP_ARTIFACT_S3_USE_SSL=false` |
+| filesystem | — | `CNIP_ARTIFACT_DIR=/path` (tests, single host) |
+
+Pair with a CDN (e.g. Cloudflare, free egress from B2) for worker downloads at
+scale.
 
 Only the coordinator and artifact store are Internet-exposed. Aggregator and builder
 have no inbound surface. Egress: coordinator/aggregator → VPS Advisor APIs; builder →

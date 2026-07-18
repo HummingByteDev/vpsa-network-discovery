@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/vpsadvisor/ip-discovery/internal/mockadvisor"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/config"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/httpserver"
-	"github.com/vpsadvisor/ip-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/mockadvisor"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
 )
 
 func main() {
