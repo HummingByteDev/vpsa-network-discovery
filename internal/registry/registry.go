@@ -185,27 +185,110 @@ func (s *Store) Heartbeat(ctx context.Context, workerID, softwareVersion string)
 	return w, nil
 }
 
-// ActiveKey returns the worker's current public key and state for request
-// verification. Retired/revoked keys never verify.
-func (s *Store) ActiveKey(ctx context.Context, workerID string) (ed25519.PublicKey, string, error) {
-	var key []byte
-	var state string
-	err := s.Pool.QueryRow(ctx, `
+// ActiveKeys returns every key currently valid for the worker (during a
+// rotation overlap there are two) plus its state. Revoked or expired keys
+// never verify.
+func (s *Store) ActiveKeys(ctx context.Context, workerID string) ([]ed25519.PublicKey, string, error) {
+	rows, err := s.Pool.Query(ctx, `
 		select k.public_key, w.state
 		from registry.worker w
 		join registry.worker_key k on k.worker_id = w.id
-		where w.id = $1 and k.revoked_at is null and k.valid_until is null`,
-		workerID).Scan(&key, &state)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", ErrUnknownWorker
-	}
+		where w.id = $1 and k.revoked_at is null
+		  and k.valid_from <= now()
+		  and (k.valid_until is null or k.valid_until > now())
+		order by k.id desc`, workerID)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(key) != ed25519.PublicKeySize {
-		return nil, "", fmt.Errorf("stored key has wrong size %d", len(key))
+	defer rows.Close()
+	var keys []ed25519.PublicKey
+	var state string
+	for rows.Next() {
+		var key []byte
+		if err := rows.Scan(&key, &state); err != nil {
+			return nil, "", err
+		}
+		if len(key) == ed25519.PublicKeySize {
+			keys = append(keys, ed25519.PublicKey(key))
+		}
 	}
-	return ed25519.PublicKey(key), state, nil
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(keys) == 0 {
+		return nil, "", ErrUnknownWorker
+	}
+	return keys, state, nil
+}
+
+// RotateKey installs nextPub as the worker's new key, keeping the old one
+// valid for the overlap window, and clears any pending rotation demand.
+func (s *Store) RotateKey(ctx context.Context, workerID string, nextPub ed25519.PublicKey, overlap time.Duration) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `update registry.worker_key
+		set valid_until = now() + $2
+		where worker_id = $1 and revoked_at is null and valid_until is null`,
+		workerID, overlap); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `insert into registry.worker_key (worker_id, public_key)
+		values ($1, $2)`, workerID, []byte(nextPub)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `update registry.worker
+		set config = config - 'rotate_requested' where id = $1`, workerID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `insert into registry.trust_event (worker_id, event_type, actor)
+		values ($1, 'key_rotated', 'worker')`, workerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RequestRotation flags the worker so its next heartbeat carries the
+// rotate_key control action.
+func (s *Store) RequestRotation(ctx context.Context, workerID string) error {
+	ct, err := s.Pool.Exec(ctx, `update registry.worker
+		set config = config || '{"rotate_requested": true}' where id = $1`, workerID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrUnknownWorker
+	}
+	return nil
+}
+
+// SeenNonce records a request nonce; returns true if it was already seen
+// inside the replay window (a replay).
+func (s *Store) SeenNonce(ctx context.Context, workerID, nonce string) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `insert into registry.replay_nonce (worker_id, nonce)
+		values ($1, $2) on conflict do nothing`, workerID, []byte(nonce))
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() == 0, nil
+}
+
+// PruneNonces drops nonces older than the replay window.
+func (s *Store) PruneNonces(ctx context.Context, window time.Duration) (int64, error) {
+	ct, err := s.Pool.Exec(ctx,
+		`delete from registry.replay_nonce where seen_at < now() - $1`, window)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// RecordTrustEvent appends a discrete trust-affecting event.
+func (s *Store) RecordTrustEvent(ctx context.Context, workerID, eventType, actor string) {
+	_, _ = s.Pool.Exec(ctx, `insert into registry.trust_event (worker_id, event_type, actor)
+		values ($1, $2, $3)`, workerID, eventType, actor)
 }
 
 // List returns all workers, newest first (admin surface).

@@ -13,6 +13,7 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/trust"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 	addr := cfg.String("HTTP_ADDR", ":8082")
 	dsn := cfg.Require("DB_DSN")
 	dbWait := cfg.Duration("DB_WAIT", 60*time.Second)
+	cfg2 := cfg.Duration("TRUST_INTERVAL", time.Minute)
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
 		os.Exit(1)
@@ -36,6 +38,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+
+	scorer := &trust.Scorer{Pool: pool, Log: log}
+	go scorer.Run(ctx, cfg2)
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)

@@ -92,6 +92,7 @@ func (c *Client) Register(ctx context.Context, enrollmentToken, name, version st
 type HeartbeatResponse struct {
 	State    string          `json:"state"`
 	Config   json.RawMessage `json:"config"`
+	Actions  []string        `json:"actions"`
 	Snapshot *struct {
 		Version string `json:"version"`
 	} `json:"snapshot"`
@@ -118,6 +119,13 @@ func (c *Client) CurrentManifest(ctx context.Context) (*ManifestResponse, error)
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// RotateKey submits the next public key, signed with the current key.
+func (c *Client) RotateKey(ctx context.Context, nextPub ed25519.PublicKey) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/workers/keys/rotate", map[string]string{
+		"next_public_key": base64.StdEncoding.EncodeToString(nextPub),
+	}, nil)
 }
 
 // Assignment is one probing instruction leased from the coordinator.

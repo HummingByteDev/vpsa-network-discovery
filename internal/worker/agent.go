@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"os"
@@ -121,6 +122,13 @@ func (a *Agent) tick(ctx context.Context) {
 		a.log.Warn("unexpected state in heartbeat", "state", hb.State)
 		return
 	}
+	for _, action := range hb.Actions {
+		if action == "rotate_key" {
+			if err := a.rotateKey(ctx); err != nil {
+				a.log.Error("demanded key rotation failed", "error", err)
+			}
+		}
+	}
 	if hb.Snapshot != nil && hb.Snapshot.Version != a.state.SnapshotVersion() {
 		if err := a.SyncSnapshot(ctx); err != nil {
 			a.log.Error("snapshot sync failed", "error", err)
@@ -133,6 +141,25 @@ func (a *Agent) tick(ctx context.Context) {
 		go a.executor.Run(execCtx)
 		a.log.Info("probe executor started")
 	}
+}
+
+// rotateKey generates a fresh keypair, registers it (signed with the current
+// key), and only then swaps the local key — a failed registration leaves the
+// worker on its old, still-valid key.
+func (a *Agent) rotateKey(ctx context.Context) error {
+	_, next, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	if err := a.client.RotateKey(ctx, next.Public().(ed25519.PublicKey)); err != nil {
+		return err
+	}
+	if err := a.state.ReplaceKey(next); err != nil {
+		return fmt.Errorf("new key registered but not persisted (old key valid for the overlap): %w", err)
+	}
+	a.client.Key = next
+	a.log.Info("key rotated")
+	return nil
 }
 
 // SetExecutor arms the measurement executor; it starts once the worker is

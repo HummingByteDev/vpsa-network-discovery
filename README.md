@@ -7,8 +7,8 @@ the VPS Advisor website — see `CLAUDE.md` for the full project brief.
 
 ## Status
 
-Phases 1–5 complete: Architecture & Foundation, Routing Snapshot Builder,
-Snapshot Distribution, Worker Framework, Probe Engine. See the
+Phases 1–6 complete: Architecture & Foundation, Routing Snapshot Builder,
+Snapshot Distribution, Worker Framework, Probe Engine, Authentication & Trust. See the
 [roadmap](docs/architecture/09-roadmap.md) for what comes next, and
 [docs/demos/](docs/demos/) for runnable per-phase walkthroughs.
 

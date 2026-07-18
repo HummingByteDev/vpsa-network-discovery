@@ -151,10 +151,18 @@ func (s *Server) uploadObservations(w http.ResponseWriter, r *http.Request) {
 	}
 	workerID := identity(r).ID
 	ctx := r.Context()
-	pub, _, err := s.reg.ActiveKey(ctx, workerID)
+	keys, _, err := s.reg.ActiveKeys(ctx, workerID)
 	if err != nil {
 		problem(w, http.StatusUnauthorized, "no active key")
 		return
+	}
+	verifyObs := func(o observation.Observation) bool {
+		for _, pub := range keys {
+			if observation.Verify(o, pub) == nil {
+				return true
+			}
+		}
+		return false
 	}
 
 	// Idempotency: a known batch is acknowledged, never re-inserted.
@@ -204,7 +212,7 @@ func (s *Server) uploadObservations(w http.ResponseWriter, r *http.Request) {
 	heldRows.Close()
 	providers := make([]string, 0, len(req.Observations))
 	for _, obs := range req.Observations {
-		if err := observation.Verify(obs, pub); err != nil {
+		if !verifyObs(obs) {
 			rejected++
 			continue
 		}

@@ -21,12 +21,15 @@ import (
 	"time"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/audit"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/registry"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/wireauth"
 )
 
 type Config struct {
 	AdminToken string
+	// Audit, when set, receives security- and admin-relevant events.
+	Audit *audit.Logger
 	// DevEnrollmentToken, when set, lets a worker register with this shared
 	// token: a worker record is auto-created and auto-approved. Development
 	// convenience only — never set in production.
@@ -38,6 +41,7 @@ type Server struct {
 	cfg      Config
 	reg      *registry.Store
 	store    artifact.Store
+	audit    *audit.Logger
 	log      *slog.Logger
 	handler  http.Handler
 	manifest struct {
@@ -48,7 +52,7 @@ type Server struct {
 }
 
 func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger) *Server {
-	s := &Server{cfg: cfg, reg: reg, store: store, log: log}
+	s := &Server{cfg: cfg, reg: reg, store: store, audit: cfg.Audit, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/workers/register", s.register)
 	mux.Handle("POST /api/v1/workers/heartbeat", s.signed(s.heartbeat))
@@ -58,15 +62,37 @@ func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger
 	mux.Handle("POST /api/v1/assignments/lease", s.signed(s.leaseAssignments))
 	mux.Handle("POST /api/v1/assignments/release", s.signed(s.releaseAssignments))
 	mux.Handle("POST /api/v1/observations", s.signed(s.uploadObservations))
+	mux.Handle("POST /api/v1/workers/keys/rotate", s.signed(s.rotateKey))
 
 	mux.Handle("POST /admin/v1/workers", s.admin(s.adminCreateWorker))
 	mux.Handle("GET /admin/v1/workers", s.admin(s.adminListWorkers))
 	mux.Handle("POST /admin/v1/workers/{id}/state", s.admin(s.adminSetState))
+	mux.Handle("POST /admin/v1/workers/{id}/rotate-key", s.admin(s.adminRequestRotation))
 	s.handler = mux
 	return s
 }
 
 func (s *Server) Handler() http.Handler { return s.handler }
+
+// StartMaintenance runs background upkeep until ctx is canceled: pruning the
+// replay-nonce window (2× the wireauth skew, so a nonce outlives any
+// timestamp still accepted).
+func (s *Server) StartMaintenance(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n, err := s.reg.PruneNonces(ctx, 2*wireauth.MaxSkew); err == nil && n > 0 {
+					s.log.Debug("pruned replay nonces", "count", n)
+				}
+			}
+		}
+	}()
+}
 
 func problem(w http.ResponseWriter, status int, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
@@ -105,14 +131,31 @@ func (s *Server) signed(next http.HandlerFunc) http.Handler {
 			problem(w, http.StatusBadRequest, "unreadable body")
 			return
 		}
-		pub, state, err := s.reg.ActiveKey(r.Context(), workerID)
+		keys, state, err := s.reg.ActiveKeys(r.Context(), workerID)
 		if err != nil {
 			problem(w, http.StatusUnauthorized, "unknown worker or no active key")
 			return
 		}
-		if _, err := wireauth.Verify(r.Method, r.URL.Path, r.Header, body, pub, time.Now()); err != nil {
-			s.log.Warn("signature rejected", "worker", workerID, "error", err)
+		var nonce string
+		verifyErr := fmt.Errorf("no keys")
+		for _, pub := range keys {
+			if nonce, verifyErr = wireauth.Verify(r.Method, r.URL.Path, r.Header, body, pub, time.Now()); verifyErr == nil {
+				break
+			}
+		}
+		if verifyErr != nil {
+			s.log.Warn("signature rejected", "worker", workerID, "error", verifyErr)
+			s.reg.RecordTrustEvent(r.Context(), workerID, "bad_signature", "system")
 			problem(w, http.StatusUnauthorized, "signature verification failed")
+			return
+		}
+		if replayed, err := s.reg.SeenNonce(r.Context(), workerID, nonce); err != nil {
+			problem(w, http.StatusInternalServerError, "auth check failed")
+			return
+		} else if replayed {
+			s.log.Warn("replayed nonce rejected", "worker", workerID)
+			s.reg.RecordTrustEvent(r.Context(), workerID, "replay", "system")
+			problem(w, http.StatusConflict, "nonce replay detected")
 			return
 		}
 		switch state {
@@ -182,6 +225,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("worker registered", "worker", workerID)
+	if s.audit != nil {
+		s.audit.Event(r.Context(), "auth", "worker:"+workerID, "registered", workerID, nil)
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{"worker_id": workerID, "state": state})
 }
 
@@ -222,9 +268,17 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusInternalServerError, "heartbeat failed")
 		return
 	}
+	actions := []string{}
+	var cfg map[string]any
+	if err := json.Unmarshal(wk.Config, &cfg); err == nil {
+		if v, ok := cfg["rotate_requested"].(bool); ok && v {
+			actions = append(actions, "rotate_key")
+		}
+	}
 	resp := map[string]any{
-		"state":  wk.State,
-		"config": json.RawMessage(wk.Config),
+		"state":   wk.State,
+		"config":  json.RawMessage(wk.Config),
+		"actions": actions,
 	}
 	if m := s.currentManifestCached(r.Context()); m != nil && wk.State == "active" {
 		resp["snapshot"] = map[string]any{"version": m.Version}
@@ -358,6 +412,10 @@ func (s *Server) adminSetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := s.reg.SetState(r.Context(), r.PathValue("id"), req.State, req.Reason, "admin")
+	if err == nil && s.audit != nil {
+		s.audit.Event(r.Context(), "admin", "admin", "worker_state:"+req.State,
+			r.PathValue("id"), map[string]string{"reason": req.Reason})
+	}
 	switch {
 	case errors.Is(err, registry.ErrUnknownWorker):
 		problem(w, http.StatusNotFound, "unknown worker")

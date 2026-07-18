@@ -12,6 +12,7 @@ import (
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/coordinator"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/audit"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
@@ -59,7 +60,9 @@ func main() {
 	api := coordinator.New(coordinator.Config{
 		AdminToken:         adminToken,
 		DevEnrollmentToken: devToken,
+		Audit:              &audit.Logger{Pool: pool, Log: log},
 	}, &registry.Store{Pool: pool}, store, log)
+	api.StartMaintenance(ctx)
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)

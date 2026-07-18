@@ -52,6 +52,16 @@ func (s State) Key() (ed25519.PrivateKey, error) {
 	return priv, nil
 }
 
+// ReplaceKey atomically persists a new private key seed.
+func (s State) ReplaceKey(priv ed25519.PrivateKey) error {
+	enc := base64.StdEncoding.EncodeToString(priv.Seed())
+	tmp := s.keyPath() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(enc+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.keyPath())
+}
+
 // WorkerID returns the persisted ID, or "" before first registration.
 func (s State) WorkerID() (string, error) {
 	raw, err := os.ReadFile(s.idPath())
