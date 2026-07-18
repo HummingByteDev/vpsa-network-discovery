@@ -47,6 +47,12 @@ Two supported topologies, same images:
   external (managed), artifact store = S3-compatible + CDN in front for worker
   downloads.
 
+Artifact store, production: **Backblaze B2** (decision 2026-07-18) via its
+S3-compatible API — the platform's S3 client works unchanged
+(`CNIP_ARTIFACT_S3_ENDPOINT=s3.<region>.backblazeb2.com`, B2 application key as
+access/secret pair). Pair with a CDN (e.g. Cloudflare, free egress from B2) for
+worker downloads at scale. Local dev uses minio, same protocol.
+
 Only the coordinator and artifact store are Internet-exposed. Aggregator and builder
 have no inbound surface. Egress: coordinator/aggregator → VPS Advisor APIs; builder →
 RIPE RIS + MaxMind; workers → coordinator + artifact CDN only.

@@ -3,6 +3,8 @@ package builder
 import (
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -15,6 +17,7 @@ import (
 	"github.com/osrg/gobgp/v3/pkg/packet/mrt"
 
 	"github.com/vpsadvisor/ip-discovery/internal/advisor"
+	"github.com/vpsadvisor/ip-discovery/internal/artifact"
 	"github.com/vpsadvisor/ip-discovery/internal/mockadvisor"
 	"github.com/vpsadvisor/ip-discovery/internal/platform/migrate"
 )
@@ -135,7 +138,14 @@ func writeBview(t *testing.T) string {
 	return path
 }
 
-func newBuilder(t *testing.T, pool *pgxpool.Pool, bview string) *Builder {
+type testEnv struct {
+	b         *Builder
+	pub       *artifact.Publisher
+	storeRoot string
+	pubKey    ed25519.PublicKey
+}
+
+func newBuilder(t *testing.T, pool *pgxpool.Pool, bview string) *testEnv {
 	t.Helper()
 	fixtures, err := mockadvisor.LoadFixtures([]byte(fixtureJSON))
 	if err != nil {
@@ -144,20 +154,36 @@ func newBuilder(t *testing.T, pool *pgxpool.Pool, bview string) *Builder {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := httptest.NewServer(mockadvisor.NewServer(fixtures, "t", log))
 	t.Cleanup(srv.Close)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := t.TempDir()
+	pub := &artifact.Publisher{
+		Pool: pool, Store: artifact.FSStore{Root: storeRoot},
+		Key: priv, MinWorkerVersion: "0.1.0", Log: log,
+	}
 	cfg := Config{
 		BviewPath:             bview,
 		MaxTargetsPerProvider: 100,
 		SanityMaxDelta:        0.5,
+		RetainSnapshots:       2,
 	}
-	return New(cfg, pool, advisor.New(srv.URL, "t"), log)
+	return &testEnv{
+		b:         New(cfg, pool, advisor.New(srv.URL, "t"), pub, log),
+		pub:       pub,
+		storeRoot: storeRoot,
+		pubKey:    priv.Public().(ed25519.PublicKey),
+	}
 }
 
 func TestPipelineEndToEnd(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
-	b := newBuilder(t, pool, writeBview(t))
+	env := newBuilder(t, pool, writeBview(t))
 
-	if err := b.Run(ctx); err != nil {
+	if err := env.b.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,11 +245,11 @@ func TestSecondRunSupersedesFirst(t *testing.T) {
 	ctx := context.Background()
 	bview := writeBview(t)
 
-	b := newBuilder(t, pool, bview)
-	if err := b.Run(ctx); err != nil {
+	env := newBuilder(t, pool, bview)
+	if err := env.b.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Run(ctx); err != nil {
+	if err := env.b.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
 

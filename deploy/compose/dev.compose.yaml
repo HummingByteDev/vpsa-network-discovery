@@ -53,6 +53,30 @@ services:
       postgres: { condition: service_healthy }
     restart: "no"
 
+  # One-shot snapshot build inside the stack:
+  #   docker compose -f deploy/compose/dev.compose.yaml --profile build run --rm builder
+  # Requires CNIP_SNAPSHOT_SIGNING_KEY in the environment (./bin/keygen) and
+  # the data/ directory populated (RIS bview + extracted GeoLite2 mmdb).
+  builder:
+    build: { <<: *platform-build, args: { COMPONENT: builder } }
+    profiles: [build]
+    environment:
+      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+      CNIP_ADVISOR_URL: http://mockadvisor:8081
+      CNIP_ADVISOR_TOKEN: dev-advisor-token
+      CNIP_RIS_BVIEW_PATH: /data/ripe/latest-bview.gz
+      CNIP_GEOIP_CITY_MMDB: /data/geo-data/GeoLite2-City.mmdb
+      CNIP_ARTIFACT_S3_ENDPOINT: minio:9000
+      CNIP_ARTIFACT_S3_ACCESS_KEY: cnip
+      CNIP_ARTIFACT_S3_SECRET_KEY: cnip-dev-secret
+      CNIP_ARTIFACT_S3_USE_SSL: "false"
+      CNIP_SNAPSHOT_SIGNING_KEY: ${CNIP_SNAPSHOT_SIGNING_KEY:-}
+    volumes: ["../../data:/data:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    restart: "no"
+
   mockadvisor:
     build: { <<: *platform-build, args: { COMPONENT: mockadvisor } }
     environment:

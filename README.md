@@ -7,8 +7,9 @@ the VPS Advisor website — see `CLAUDE.md` for the full project brief.
 
 ## Status
 
-Phases 1 (Architecture & Foundation) and 2 (Routing Snapshot Builder) — complete.
-See the [roadmap](docs/architecture/09-roadmap.md) for what comes next, and
+Phases 1 (Architecture & Foundation), 2 (Routing Snapshot Builder), and
+3 (Snapshot Distribution) — complete. See the
+[roadmap](docs/architecture/09-roadmap.md) for what comes next, and
 [docs/demos/](docs/demos/) for runnable per-phase walkthroughs.
 
 ## Layout

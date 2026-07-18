@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vpsadvisor/ip-discovery/internal/advisor"
+	"github.com/vpsadvisor/ip-discovery/internal/artifact"
 	"github.com/vpsadvisor/ip-discovery/internal/builder"
 	"github.com/vpsadvisor/ip-discovery/internal/platform/config"
 	"github.com/vpsadvisor/ip-discovery/internal/platform/db"
@@ -35,7 +36,21 @@ func main() {
 		MaxTargetsPerProvider: cfg.Int("MAX_TARGETS_PER_PROVIDER", 100),
 		SanityMaxDelta:        float64(cfg.Int("SANITY_MAX_DELTA_PCT", 50)) / 100,
 		SanityForce:           cfg.Bool("SANITY_FORCE", false),
+		RetainSnapshots:       cfg.Int("RETAIN_SNAPSHOTS", 5),
 	}
+	// Artifact store: S3-compatible (Backblaze B2 in production, minio in
+	// dev) or a local directory; unset means build-only, no distribution.
+	s3Endpoint := cfg.String("ARTIFACT_S3_ENDPOINT", "")
+	s3cfg := artifact.S3Config{
+		Endpoint:  s3Endpoint,
+		AccessKey: cfg.String("ARTIFACT_S3_ACCESS_KEY", ""),
+		SecretKey: cfg.String("ARTIFACT_S3_SECRET_KEY", ""),
+		Bucket:    cfg.String("ARTIFACT_S3_BUCKET", "cnip-artifacts"),
+		UseSSL:    cfg.Bool("ARTIFACT_S3_USE_SSL", true),
+	}
+	artifactDir := cfg.String("ARTIFACT_DIR", "")
+	signingKeyB64 := cfg.String("SNAPSHOT_SIGNING_KEY", "")
+	minWorkerVersion := cfg.String("MIN_WORKER_VERSION", "0.1.0")
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
 		os.Exit(1)
@@ -49,7 +64,29 @@ func main() {
 	}
 	defer pool.Close()
 
-	b := builder.New(bcfg, pool, advisor.New(advisorURL, advisorToken), log)
+	var pub *artifact.Publisher
+	if s3Endpoint != "" || artifactDir != "" {
+		key, err := artifact.ParseSigningKey(signingKeyB64)
+		if err != nil {
+			log.Error("artifact store configured but CNIP_SNAPSHOT_SIGNING_KEY unusable", "error", err)
+			os.Exit(1)
+		}
+		var store artifact.Store
+		if s3Endpoint != "" {
+			store, err = artifact.NewS3Store(s3cfg)
+			if err != nil {
+				log.Error("artifact store unavailable", "error", err)
+				os.Exit(1)
+			}
+		} else {
+			store = artifact.FSStore{Root: artifactDir}
+		}
+		pub = &artifact.Publisher{Pool: pool, Store: store, Key: key,
+			MinWorkerVersion: minWorkerVersion, Log: log}
+		log.Info("artifact publication enabled", "public_key", artifact.PublicKeyBase64(key))
+	}
+
+	b := builder.New(bcfg, pool, advisor.New(advisorURL, advisorToken), pub, log)
 	if err := b.Run(ctx); err != nil {
 		if errors.Is(err, builder.ErrSanityGate) {
 			log.Error("snapshot held for review", "error", err)

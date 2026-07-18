@@ -17,28 +17,31 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vpsadvisor/ip-discovery/internal/advisor"
+	"github.com/vpsadvisor/ip-discovery/internal/artifact"
 	"github.com/vpsadvisor/ip-discovery/internal/routing/bogon"
 	"github.com/vpsadvisor/ip-discovery/internal/routing/geo"
 	"github.com/vpsadvisor/ip-discovery/internal/routing/mrtreader"
 )
 
 type Config struct {
-	BviewPath              string
-	CityMMDB               string  // empty: skip geo enrichment
-	MaxTargetsPerProvider  int     // per address family
-	SanityMaxDelta         float64 // max fractional prefix-count change vs previous
-	SanityForce            bool    // publish even when the gate trips
+	BviewPath             string
+	CityMMDB              string  // empty: skip geo enrichment
+	MaxTargetsPerProvider int     // per address family
+	SanityMaxDelta        float64 // max fractional prefix-count change vs previous
+	SanityForce           bool    // publish even when the gate trips
+	RetainSnapshots       int     // superseded snapshots to keep un-pruned
 }
 
 type Builder struct {
-	cfg     Config
-	pool    *pgxpool.Pool
-	advisor *advisor.Client
-	log     *slog.Logger
+	cfg       Config
+	pool      *pgxpool.Pool
+	advisor   *advisor.Client
+	publisher *artifact.Publisher // nil: skip artifact publication (dev-only)
+	log       *slog.Logger
 }
 
-func New(cfg Config, pool *pgxpool.Pool, adv *advisor.Client, log *slog.Logger) *Builder {
-	return &Builder{cfg: cfg, pool: pool, advisor: adv, log: log}
+func New(cfg Config, pool *pgxpool.Pool, adv *advisor.Client, pub *artifact.Publisher, log *slog.Logger) *Builder {
+	return &Builder{cfg: cfg, pool: pool, advisor: adv, publisher: pub, log: log}
 }
 
 // ErrSanityGate is returned when the new snapshot deviates too much from the
@@ -102,8 +105,23 @@ func (b *Builder) Run(ctx context.Context) error {
 	if err := b.sanityGate(ctx, snapshotID); err != nil {
 		return err
 	}
+	if b.publisher != nil {
+		if _, err := b.publisher.Publish(ctx, snapshotID, version); err != nil {
+			return fmt.Errorf("artifact publication: %w", err)
+		}
+	} else {
+		b.log.Warn("no artifact store configured; snapshot will not be distributable to workers")
+	}
 	if err := b.publish(ctx, snapshotID); err != nil {
 		return fmt.Errorf("publish: %w", err)
+	}
+	if b.publisher != nil {
+		if err := b.publisher.SetCurrent(ctx, version); err != nil {
+			return fmt.Errorf("set current pointer: %w", err)
+		}
+		if err := b.publisher.Prune(ctx, b.cfg.RetainSnapshots); err != nil {
+			return fmt.Errorf("prune: %w", err)
+		}
 	}
 	b.log.Info("snapshot published", "version", version,
 		"elapsed", time.Since(start).Round(time.Second).String())
