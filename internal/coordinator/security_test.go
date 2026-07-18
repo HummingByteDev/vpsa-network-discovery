@@ -200,12 +200,12 @@ func TestTrustSkeleton(t *testing.T) {
 	if err := scorer.ComputeAll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var score, avail, tenure, penalty float64
+	var score, avail, tenure, agreement, penalty float64
 	if err := e.pool.QueryRow(ctx, `select score,
 		(components->>'availability')::float, (components->>'tenure')::float,
-		(components->>'penalty')::float
+		(components->>'agreement')::float, (components->>'penalty')::float
 		from registry.trust_score where worker_id = $1`,
-		workerID).Scan(&score, &avail, &tenure, &penalty); err != nil {
+		workerID).Scan(&score, &avail, &tenure, &agreement, &penalty); err != nil {
 		t.Fatal(err)
 	}
 	if avail != 1.0 {
@@ -214,10 +214,13 @@ func TestTrustSkeleton(t *testing.T) {
 	if tenure < 0.45 || tenure > 0.55 {
 		t.Fatalf("tenure = %v, want ≈0.5 at 14 days", tenure)
 	}
+	if agreement != 0.5 {
+		t.Fatalf("agreement = %v, want neutral 0.5 with no history", agreement)
+	}
 	if penalty != 0.3 {
 		t.Fatalf("penalty = %v, want 0.3 for 3 events", penalty)
 	}
-	want := 1.0*(0.3+0.7*tenure) - 0.3
+	want := 1.0*(0.2+0.3*tenure) + 0.5*0.5 - 0.3
 	if diff := score - want; diff > 0.001 || diff < -0.001 {
 		t.Fatalf("score = %v, want %v", score, want)
 	}

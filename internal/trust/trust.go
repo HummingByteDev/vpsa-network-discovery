@@ -18,20 +18,25 @@ type Scorer struct {
 }
 
 // ComputeAll recomputes trust for every non-retired worker in one statement:
+//   - agreement (dominant): mean consensus agreement over the last 24 h of
+//     settled windows (aggregation.worker_agreement); 0.5 (neutral) with no
+//     measurement history yet
 //   - availability: recency of heartbeats (full within 5m, half within 1h)
 //   - tenure: slow ramp d/(d+14) over days since approval — new workers start
 //     near the floor, capping Sybil value (worth ~0.5 after two weeks)
 //   - penalty: 0.1 per security event (bad signature, replay) in the last
 //     7 days, capped at 0.5
 //
-// score = clamp(availability × (0.3 + 0.7 × tenure) − penalty, 0, 1)
+// score = clamp(availability × (0.2 + 0.3 × tenure) + 0.5 × agreement − penalty, 0, 1)
 func (s *Scorer) ComputeAll(ctx context.Context) error {
 	_, err := s.Pool.Exec(ctx, `
 		insert into registry.trust_score (worker_id, score, components, computed_at)
 		select id,
-		       greatest(0.0, least(1.0, avail * (0.3 + 0.7 * tenure) - penalty)),
+		       greatest(0.0, least(1.0,
+		         avail * (0.2 + 0.3 * tenure) + 0.5 * agreement - penalty)),
 		       jsonb_build_object('availability', round(avail::numeric, 3),
 		                          'tenure', round(tenure::numeric, 3),
+		                          'agreement', round(agreement::numeric, 3),
 		                          'penalty', round(penalty::numeric, 3)),
 		       now()
 		from (
@@ -44,6 +49,11 @@ func (s *Scorer) ComputeAll(ctx context.Context) error {
 		         else (extract(epoch from now() - w.approved_at) / 86400.0) /
 		              ((extract(epoch from now() - w.approved_at) / 86400.0) + 14.0)
 		    end as tenure,
+		    coalesce((
+		      select avg(a.agreement) from aggregation.worker_agreement a
+		      where a.worker_id = w.id
+		        and a.window_start > now() - interval '24 hours'
+		    ), 0.5) as agreement,
 		    least(0.5, 0.1 * (
 		      select count(*) from registry.trust_event e
 		      where e.worker_id = w.id

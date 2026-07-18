@@ -11,6 +11,7 @@ import (
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/aggregate"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/trust"
@@ -26,6 +27,8 @@ func main() {
 	dsn := cfg.Require("DB_DSN")
 	dbWait := cfg.Duration("DB_WAIT", 60*time.Second)
 	cfg2 := cfg.Duration("TRUST_INTERVAL", time.Minute)
+	windowSeconds := cfg.Int("WINDOW_SECONDS", 300)
+	minWorkers := cfg.Int("MIN_WORKERS", 3)
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
 		os.Exit(1)
@@ -41,6 +44,12 @@ func main() {
 
 	scorer := &trust.Scorer{Pool: pool, Log: log}
 	go scorer.Run(ctx, cfg2)
+
+	engine := &aggregate.Engine{Pool: pool, Cfg: aggregate.Config{
+		WindowSeconds: windowSeconds,
+		MinWorkers:    minWorkers,
+	}, Log: log}
+	go engine.Run(ctx)
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)

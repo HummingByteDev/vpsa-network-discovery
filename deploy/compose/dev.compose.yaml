@@ -125,6 +125,8 @@ services:
     environment:
       CNIP_HTTP_ADDR: ":8082"
       CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+      CNIP_WINDOW_SECONDS: "60"   # fast windows for dev visibility
+      CNIP_MIN_WORKERS: "2"       # small dev fleet; production default is 3
     ports: ["8082:8082"]
     depends_on:
       postgres: { condition: service_healthy }
