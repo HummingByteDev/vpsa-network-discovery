@@ -11,9 +11,11 @@ import (
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/db"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/aggregate"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/publisher"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/trust"
 )
 
@@ -29,6 +31,8 @@ func main() {
 	cfg2 := cfg.Duration("TRUST_INTERVAL", time.Minute)
 	windowSeconds := cfg.Int("WINDOW_SECONDS", 300)
 	minWorkers := cfg.Int("MIN_WORKERS", 3)
+	advisorURL := cfg.String("ADVISOR_URL", "")
+	advisorToken := cfg.String("ADVISOR_TOKEN", "")
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
 		os.Exit(1)
@@ -50,6 +54,14 @@ func main() {
 		MinWorkers:    minWorkers,
 	}, Log: log}
 	go engine.Run(ctx)
+
+	if advisorURL != "" {
+		pub := &publisher.Publisher{Pool: pool,
+			Client: advisor.New(advisorURL, advisorToken), Log: log}
+		go pub.Run(ctx, 15*time.Second, 5*time.Minute)
+	} else {
+		log.Warn("no VPS Advisor endpoint configured; publication outbox will accumulate")
+	}
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)

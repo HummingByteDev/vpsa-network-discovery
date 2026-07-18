@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/audit"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/registry"
@@ -42,6 +43,9 @@ type Config struct {
 	// ResolveASN, when set, maps a worker's source IP to its ASN
 	// (GeoLite2-ASN); used for self-network exclusion and diversity.
 	ResolveASN func(netip.Addr) (int64, bool)
+	// AdvisorClient, when set, enables continuous provider/enrollment/
+	// decision sync against VPS Advisor (or its dev stub).
+	AdvisorClient *advisor.Client
 	// MaxAssignmentsPerWorker clamps requested lease capacity (ProbePolicy).
 	MaxAssignmentsPerWorker int
 }

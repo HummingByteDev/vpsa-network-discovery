@@ -104,7 +104,7 @@ func (s *Store) Register(ctx context.Context, token string, pub ed25519.PublicKe
 }
 
 var transitions = map[string][]string{
-	"pending":     {"active", "retired"},
+	"pending":     {"active", "suspended", "retired"},
 	"active":      {"suspended", "quarantined", "retired"},
 	"suspended":   {"active", "retired"},
 	"quarantined": {"active", "suspended", "retired"},
@@ -283,6 +283,47 @@ func (s *Store) PruneNonces(ctx context.Context, window time.Duration) (int64, e
 		return 0, err
 	}
 	return ct.RowsAffected(), nil
+}
+
+// IngestEnrollment provisions a worker created on VPS Advisor: the worker
+// row (with the advisor's worker ID, keeping identities aligned across
+// systems) plus the one-time token hash. Idempotent; returns whether a new
+// worker was created.
+func (s *Store) IngestEnrollment(ctx context.Context, workerID, operatorID, name, tokenHashHex string, expiresAt time.Time) (bool, error) {
+	hash, err := hex.DecodeString(tokenHashHex)
+	if err != nil || len(hash) != sha256.Size {
+		return false, fmt.Errorf("token_hash must be hex sha256")
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	ct, err := tx.Exec(ctx, `insert into registry.worker (id, operator_id, name)
+		values ($1, $2, $3) on conflict (id) do nothing`, workerID, operatorID, name)
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `insert into registry.enrollment_token (token_hash, worker_id, expires_at)
+		values ($1, $2, $3) on conflict (token_hash) do nothing`, hash, workerID, expiresAt); err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, tx.Commit(ctx)
+}
+
+// ApplyDecision applies a VPS Advisor admin decision, ignoring no-ops (the
+// decision feed is replayed with overlap).
+func (s *Store) ApplyDecision(ctx context.Context, workerID, state, reason string) error {
+	var current string
+	err := s.Pool.QueryRow(ctx, `select state from registry.worker where id = $1`,
+		workerID).Scan(&current)
+	if err != nil {
+		return ErrUnknownWorker
+	}
+	if current == state {
+		return nil
+	}
+	return s.SetState(ctx, workerID, state, reason, "advisor-admin")
 }
 
 // RecordTrustEvent appends a discrete trust-affecting event.

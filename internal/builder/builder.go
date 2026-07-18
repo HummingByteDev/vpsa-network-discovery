@@ -60,15 +60,11 @@ type prefixRow struct {
 func (b *Builder) Run(ctx context.Context) error {
 	start := time.Now()
 
-	providers, err := b.advisor.ListProviders(ctx, true)
+	asnToProvider, err := advisor.SyncProviders(ctx, b.pool, b.advisor)
 	if err != nil {
 		return fmt.Errorf("provider sync: %w", err)
 	}
-	asnToProvider, err := b.syncProviders(ctx, providers)
-	if err != nil {
-		return fmt.Errorf("store providers: %w", err)
-	}
-	b.log.Info("provider sync complete", "providers", len(providers), "asns", len(asnToProvider))
+	b.log.Info("provider sync complete", "asns", len(asnToProvider))
 
 	monitored := make(map[uint32]bool, len(asnToProvider))
 	for asn := range asnToProvider {
@@ -126,52 +122,6 @@ func (b *Builder) Run(ctx context.Context) error {
 	b.log.Info("snapshot published", "version", version,
 		"elapsed", time.Since(start).Round(time.Second).String())
 	return nil
-}
-
-// syncProviders upserts the provider/ASN cache and soft-deletes providers no
-// longer returned by VPS Advisor. Returns ASN → provider_id for this run.
-func (b *Builder) syncProviders(ctx context.Context, providers []advisor.Provider) (map[uint32]string, error) {
-	asnToProvider := map[uint32]string{}
-	tx, err := b.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	now := time.Now().UTC()
-	ids := make([]string, 0, len(providers))
-	for _, p := range providers {
-		ids = append(ids, p.ProviderID)
-		if _, err := tx.Exec(ctx, `
-			insert into routing.provider (provider_id, name, monitoring_enabled, priority, synced_at, delisted_at)
-			values ($1, $2, $3, $4, $5, null)
-			on conflict (provider_id) do update set
-			  name = excluded.name, monitoring_enabled = excluded.monitoring_enabled,
-			  priority = excluded.priority, synced_at = excluded.synced_at, delisted_at = null`,
-			p.ProviderID, p.Name, p.MonitoringEnabled, p.Priority, now); err != nil {
-			return nil, err
-		}
-		for _, asn := range p.ASNs {
-			if existing, dup := asnToProvider[uint32(asn)]; dup && existing != p.ProviderID {
-				// ASN claimed by two providers: an upstream data error the
-				// invariants forbid us to resolve silently (docs/architecture/02).
-				return nil, fmt.Errorf("ASN %d claimed by two providers (%s, %s)", asn, existing, p.ProviderID)
-			}
-			asnToProvider[uint32(asn)] = p.ProviderID
-			if _, err := tx.Exec(ctx, `
-				insert into routing.asn (asn, provider_id, synced_at) values ($1, $2, $3)
-				on conflict (asn) do update set provider_id = excluded.provider_id, synced_at = excluded.synced_at`,
-				asn, p.ProviderID, now); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if _, err := tx.Exec(ctx, `
-		update routing.provider set delisted_at = now()
-		where delisted_at is null and not (provider_id = any($1::uuid[]))`, ids); err != nil {
-		return nil, err
-	}
-	return asnToProvider, tx.Commit(ctx)
 }
 
 // extract streams the bview and returns deduplicated monitored prefix rows.

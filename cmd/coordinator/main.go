@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/advisor"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/coordinator"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/audit"
@@ -37,6 +38,9 @@ func main() {
 	redundancy := cfg.Int("REDUNDANCY", 3)
 	maxPerWorker := cfg.Int("MAX_ASSIGNMENTS_PER_WORKER", 64)
 	asnMMDB := cfg.String("GEOIP_ASN_MMDB", "")
+	advisorURL := cfg.String("ADVISOR_URL", "")
+	advisorToken := cfg.String("ADVISOR_TOKEN", "")
+	advisorSyncInterval := cfg.Duration("ADVISOR_SYNC_INTERVAL", 2*time.Minute)
 	store, storeErr := artifact.StoreFromConfig(cfg)
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
@@ -78,8 +82,12 @@ func main() {
 		defer resolver.Close()
 		ccfg.ResolveASN = resolver.Lookup
 	}
+	if advisorURL != "" {
+		ccfg.AdvisorClient = advisor.New(advisorURL, advisorToken)
+	}
 	api := coordinator.New(ccfg, &registry.Store{Pool: pool}, store, log)
 	api.StartMaintenance(ctx)
+	api.StartAdvisorSync(ctx, advisorSyncInterval)
 
 	sched := &scheduler.Scheduler{Pool: pool,
 		Cfg: scheduler.Config{Redundancy: redundancy}, Log: log}

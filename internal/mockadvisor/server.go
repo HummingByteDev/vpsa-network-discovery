@@ -27,8 +27,27 @@ type Provider struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+type Enrollment struct {
+	EnrollmentID string    `json:"enrollment_id"`
+	WorkerID     string    `json:"worker_id"`
+	WorkerName   string    `json:"worker_name"`
+	OperatorID   string    `json:"operator_id"`
+	TokenHash    string    `json:"token_hash"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+type Decision struct {
+	DecisionID string    `json:"decision_id"`
+	WorkerID   string    `json:"worker_id"`
+	State      string    `json:"state"`
+	Reason     string    `json:"reason"`
+	DecidedAt  time.Time `json:"decided_at"`
+}
+
 type Fixtures struct {
-	Providers []Provider `json:"providers"`
+	Providers   []Provider   `json:"providers"`
+	Enrollments []Enrollment `json:"enrollments"`
+	Decisions   []Decision   `json:"decisions"`
 }
 
 func LoadFixtures(raw []byte) (*Fixtures, error) {
@@ -54,9 +73,9 @@ func NewServer(f *Fixtures, token string, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/v1/monitoring/providers", s.listProviders)
 	mux.HandleFunc("GET /api/v1/monitoring/providers/{id}", s.getProvider)
 	mux.HandleFunc("GET /api/v1/monitoring/asns", s.listASNs)
-	mux.HandleFunc("GET /api/v1/monitoring/enrollments/pending", s.emptyList("enrollments"))
+	mux.HandleFunc("GET /api/v1/monitoring/enrollments/pending", s.listEnrollments)
 	mux.HandleFunc("POST /api/v1/monitoring/enrollments/{id}/registered", s.accept(http.StatusNoContent))
-	mux.HandleFunc("GET /api/v1/monitoring/admin/decisions", s.emptyList("decisions"))
+	mux.HandleFunc("GET /api/v1/monitoring/admin/decisions", s.listDecisions)
 	mux.HandleFunc("PUT /api/v1/monitoring/results/providers/{id}", s.acceptResults)
 	mux.HandleFunc("POST /api/v1/monitoring/results/anomalies", s.accept(http.StatusAccepted))
 	mux.HandleFunc("POST /api/v1/monitoring/results/history", s.accept(http.StatusAccepted))
@@ -141,6 +160,30 @@ func (s *Server) listASNs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"asns": out, "next_cursor": nil})
+}
+
+func (s *Server) listEnrollments(w http.ResponseWriter, _ *http.Request) {
+	out := s.fixtures.Enrollments
+	if out == nil {
+		out = []Enrollment{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enrollments": out, "next_cursor": nil})
+}
+
+func (s *Server) listDecisions(w http.ResponseWriter, r *http.Request) {
+	since := time.Time{}
+	if v := r.URL.Query().Get("since"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			since = t
+		}
+	}
+	out := []Decision{}
+	for _, d := range s.fixtures.Decisions {
+		if d.DecidedAt.After(since) {
+			out = append(out, d)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"decisions": out, "next_cursor": nil})
 }
 
 func (s *Server) emptyList(key string) http.HandlerFunc {

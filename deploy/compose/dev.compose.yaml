@@ -95,6 +95,8 @@ services:
       CNIP_ARTIFACT_S3_ACCESS_KEY: cnip
       CNIP_ARTIFACT_S3_SECRET_KEY: cnip-dev-secret
       CNIP_ARTIFACT_S3_USE_SSL: "false"
+      CNIP_ADVISOR_URL: http://mockadvisor:8081
+      CNIP_ADVISOR_TOKEN: dev-advisor-token
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -127,6 +129,8 @@ services:
       CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
       CNIP_WINDOW_SECONDS: "60"   # fast windows for dev visibility
       CNIP_MIN_WORKERS: "2"       # small dev fleet; production default is 3
+      CNIP_ADVISOR_URL: http://mockadvisor:8081
+      CNIP_ADVISOR_TOKEN: dev-advisor-token
     ports: ["8082:8082"]
     depends_on:
       postgres: { condition: service_healthy }
