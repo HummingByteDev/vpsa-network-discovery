@@ -16,8 +16,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
@@ -35,6 +38,12 @@ type Config struct {
 	// convenience only — never set in production.
 	DevEnrollmentToken string
 	SnapshotPollTTL    time.Duration // how long clients may cache the manifest
+	LeaseTTL           time.Duration // assignment lease lifetime (default 5m)
+	// ResolveASN, when set, maps a worker's source IP to its ASN
+	// (GeoLite2-ASN); used for self-network exclusion and diversity.
+	ResolveASN func(netip.Addr) (int64, bool)
+	// MaxAssignmentsPerWorker clamps requested lease capacity (ProbePolicy).
+	MaxAssignmentsPerWorker int
 }
 
 type Server struct {
@@ -42,6 +51,7 @@ type Server struct {
 	reg      *registry.Store
 	store    artifact.Store
 	audit    *audit.Logger
+	paused   atomic.Bool // global assignment kill switch
 	log      *slog.Logger
 	handler  http.Handler
 	manifest struct {
@@ -68,11 +78,20 @@ func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger
 	mux.Handle("GET /admin/v1/workers", s.admin(s.adminListWorkers))
 	mux.Handle("POST /admin/v1/workers/{id}/state", s.admin(s.adminSetState))
 	mux.Handle("POST /admin/v1/workers/{id}/rotate-key", s.admin(s.adminRequestRotation))
+	mux.Handle("POST /admin/v1/scheduler/pause", s.admin(s.adminPause(true)))
+	mux.Handle("POST /admin/v1/scheduler/resume", s.admin(s.adminPause(false)))
 	s.handler = mux
 	return s
 }
 
 func (s *Server) Handler() http.Handler { return s.handler }
+
+func (s *Server) leaseTTL() time.Duration {
+	if s.cfg.LeaseTTL > 0 {
+		return s.cfg.LeaseTTL
+	}
+	return 5 * time.Minute
+}
 
 // StartMaintenance runs background upkeep until ctx is canceled: pruning the
 // replay-nonce window (2× the wireauth skew, so a nonce outlives any
@@ -187,6 +206,24 @@ func (s *Server) admin(next http.HandlerFunc) http.Handler {
 	})
 }
 
+// adminPause toggles the global assignment kill switch: paused means every
+// lease call returns an empty set, so the fleet stops probing within one
+// lease interval.
+func (s *Server) adminPause(pause bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.paused.Store(pause)
+		action := "scheduler_resumed"
+		if pause {
+			action = "scheduler_paused"
+		}
+		s.log.Warn(action)
+		if s.audit != nil {
+			s.audit.Event(r.Context(), "admin", "admin", action, "", nil)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // --- worker endpoints ---
 
 type registerRequest struct {
@@ -224,6 +261,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusInternalServerError, "registration failed")
 		return
 	}
+	s.recordSourceASN(r, workerID)
 	s.log.Info("worker registered", "worker", workerID)
 	if s.audit != nil {
 		s.audit.Event(r.Context(), "auth", "worker:"+workerID, "registered", workerID, nil)
@@ -249,6 +287,7 @@ func (s *Server) devRegister(w http.ResponseWriter, r *http.Request, req registe
 		problem(w, http.StatusInternalServerError, "registration failed")
 		return
 	}
+	s.recordSourceASN(r, workerID)
 	s.log.Info("dev worker auto-enrolled", "worker", workerID, "name", name)
 	writeJSON(w, http.StatusCreated, map[string]string{"worker_id": workerID, "state": "active"})
 }
@@ -353,6 +392,26 @@ func (s *Server) downloadArtifact(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.sqlite3")
 	w.Header().Set("Content-Length", fmt.Sprint(m.SizeBytes))
 	_, _ = io.Copy(w, rc)
+}
+
+// recordSourceASN resolves the request's source IP to an ASN and stores it
+// on the worker. Best effort: private/unknown addresses resolve to nothing.
+func (s *Server) recordSourceASN(r *http.Request, workerID string) {
+	if s.cfg.ResolveASN == nil {
+		return
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return
+	}
+	if asn, ok := s.cfg.ResolveASN(addr); ok {
+		_, _ = s.reg.Pool.Exec(r.Context(),
+			`update registry.worker set source_asn = $2 where id = $1`, workerID, asn)
+	}
 }
 
 // --- admin endpoints ---

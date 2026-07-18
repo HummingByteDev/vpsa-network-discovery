@@ -118,7 +118,8 @@ func setup(t *testing.T, devToken string) *env {
 
 	reg := &registry.Store{Pool: pool}
 	api := New(Config{AdminToken: adminToken, DevEnrollmentToken: devToken,
-		SnapshotPollTTL: time.Millisecond}, reg, store, log)
+		SnapshotPollTTL: time.Millisecond, LeaseTTL: time.Second,
+		MaxAssignmentsPerWorker: 12}, reg, store, log)
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
 	return &env{pool: pool, reg: reg, srv: srv, signKey: signKey, version: version}

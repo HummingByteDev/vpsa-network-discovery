@@ -5,19 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/observation"
 )
 
-// Phase 5 scheduling is deliberately minimal: a worker's lease call renews
-// its live leases and greedily claims open assignments up to capacity. The
-// real scheduler (redundancy groups, diversity, rebalancing, drain) replaces
-// the claim step in Phase 7 behind the same endpoint.
-
-const leaseTTL = 5 * time.Minute
+// The scheduler (internal/scheduler) generates redundant assignments; this
+// endpoint distributes them: renew, reap expired fleet-wide, then claim under
+// the diversity and self-network rules.
 
 type leaseRequest struct {
 	Capacity int `json:"capacity"`
@@ -37,6 +33,13 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "capacity must be a positive integer")
 		return
 	}
+	if s.paused.Load() {
+		writeJSON(w, http.StatusOK, map[string]any{"assignments": []leasedAssignment{}, "paused": true})
+		return
+	}
+	if max := s.cfg.MaxAssignmentsPerWorker; max > 0 && req.Capacity > max {
+		req.Capacity = max
+	}
 	workerID := identity(r).ID
 	ctx := r.Context()
 	tx, err := s.reg.Pool.Begin(ctx)
@@ -48,7 +51,7 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 
 	// Renew this worker's live leases.
 	if _, err := tx.Exec(ctx, `update scheduling.lease set expires_at = now() + $2
-		where worker_id = $1 and released_at is null`, workerID, leaseTTL); err != nil {
+		where worker_id = $1 and released_at is null`, workerID, s.leaseTTL()); err != nil {
 		problem(w, http.StatusInternalServerError, "lease failed")
 		return
 	}
@@ -70,15 +73,31 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if want := req.Capacity - held; want > 0 {
-		if _, err := tx.Exec(ctx, `with claimed as (
-				select id from scheduling.assignment
-				where status = 'open' for update skip locked limit $2)
-			, marked as (
+		// Claim rules: never two replicas of one redundancy group on the same
+		// worker; never a target inside the worker's own network (self-ASN
+		// exclusion); SKIP LOCKED keeps concurrent claimants from colliding.
+		if _, err := tx.Exec(ctx, `with me as (
+				select source_asn from registry.worker where id = $1
+			), mine as (
+				select distinct a.redundancy_group
+				from scheduling.lease l
+				join scheduling.assignment a on a.id = l.assignment_id
+				where l.worker_id = $1 and l.released_at is null
+			), claimed as (
+				select a.id from scheduling.assignment a, me
+				where a.status = 'open'
+				  and not exists (select 1 from mine m where m.redundancy_group = a.redundancy_group)
+				  and not exists (
+				    select 1 from routing.asn ra
+				    where ra.provider_id = a.provider_id and ra.asn = me.source_asn)
+				order by a.id
+				for update skip locked limit $2
+			), marked as (
 				update scheduling.assignment a set status = 'leased'
 				from claimed where a.id = claimed.id returning a.id)
 			insert into scheduling.lease (assignment_id, worker_id, expires_at)
 			select id, $1, now() + $3 from marked`,
-			workerID, want, leaseTTL); err != nil {
+			workerID, want, s.leaseTTL()); err != nil {
 			problem(w, http.StatusInternalServerError, "lease failed")
 			return
 		}

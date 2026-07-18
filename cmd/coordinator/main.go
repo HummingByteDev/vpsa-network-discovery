@@ -18,6 +18,8 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/httpserver"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/registry"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/routing/geo"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/scheduler"
 )
 
 func main() {
@@ -31,6 +33,10 @@ func main() {
 	dbWait := cfg.Duration("DB_WAIT", 60*time.Second)
 	adminToken := cfg.Require("ADMIN_TOKEN")
 	devToken := cfg.String("DEV_ENROLLMENT_TOKEN", "")
+	schedInterval := cfg.Duration("SCHEDULER_INTERVAL", 30*time.Second)
+	redundancy := cfg.Int("REDUNDANCY", 3)
+	maxPerWorker := cfg.Int("MAX_ASSIGNMENTS_PER_WORKER", 64)
+	asnMMDB := cfg.String("GEOIP_ASN_MMDB", "")
 	store, storeErr := artifact.StoreFromConfig(cfg)
 	if err := cfg.Err(); err != nil {
 		log.Error("bad configuration", "error", err)
@@ -57,12 +63,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	api := coordinator.New(coordinator.Config{
-		AdminToken:         adminToken,
-		DevEnrollmentToken: devToken,
-		Audit:              &audit.Logger{Pool: pool, Log: log},
-	}, &registry.Store{Pool: pool}, store, log)
+	ccfg := coordinator.Config{
+		AdminToken:              adminToken,
+		DevEnrollmentToken:      devToken,
+		MaxAssignmentsPerWorker: maxPerWorker,
+		Audit:                   &audit.Logger{Pool: pool, Log: log},
+	}
+	if asnMMDB != "" {
+		resolver, err := geo.OpenASN(asnMMDB)
+		if err != nil {
+			log.Error("GeoLite2-ASN database unusable", "error", err)
+			os.Exit(1)
+		}
+		defer resolver.Close()
+		ccfg.ResolveASN = resolver.Lookup
+	}
+	api := coordinator.New(ccfg, &registry.Store{Pool: pool}, store, log)
 	api.StartMaintenance(ctx)
+
+	sched := &scheduler.Scheduler{Pool: pool,
+		Cfg: scheduler.Config{Redundancy: redundancy}, Log: log}
+	go sched.Run(ctx, schedInterval)
 
 	srv := httpserver.New(addr, log)
 	srv.AddReadyCheck("postgres", pool.Ping)

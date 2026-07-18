@@ -53,3 +53,28 @@ func (e *Enricher) Lookup(p netip.Prefix) Info {
 	}
 	return info
 }
+
+// ASNResolver maps an IP to its origin ASN via GeoLite2-ASN; the coordinator
+// uses it to record which network a worker probes from (self-ASN exclusion
+// and diversity need it).
+type ASNResolver struct {
+	db *geoip2.Reader
+}
+
+func OpenASN(asnMMDB string) (*ASNResolver, error) {
+	db, err := geoip2.Open(asnMMDB)
+	if err != nil {
+		return nil, err
+	}
+	return &ASNResolver{db: db}, nil
+}
+
+func (r *ASNResolver) Close() error { return r.db.Close() }
+
+func (r *ASNResolver) Lookup(addr netip.Addr) (int64, bool) {
+	rec, err := r.db.ASN(net.IP(addr.AsSlice()))
+	if err != nil || rec == nil || rec.AutonomousSystemNumber == 0 {
+		return 0, false
+	}
+	return int64(rec.AutonomousSystemNumber), true
+}
