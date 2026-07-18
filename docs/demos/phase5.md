@@ -28,7 +28,7 @@ Assignments normally come from the scheduler (Phase 7). For now, create them
 from published probe targets:
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c "
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c "
 insert into scheduling.assignment (target_id, provider_id, probe_type, interval_seconds, redundancy_group)
 select t.id, t.provider_id, 'icmp', 15, gen_random_uuid()
 from routing.probe_target t
@@ -41,7 +41,7 @@ limit 12;"
 Workers lease within 60 s, probe every 15 s, flush every 30 s:
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c "
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c "
 select p.name, count(*) observations,
        round(avg(o.rtt_ms)::numeric, 1) avg_rtt_ms,
        round((sum(o.packets_lost)::numeric / nullif(sum(o.packets_sent),0)) * 100, 2) loss_pct,

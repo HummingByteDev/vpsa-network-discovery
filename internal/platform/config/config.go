@@ -1,4 +1,4 @@
-// Package config loads service configuration from CNIP_-prefixed environment
+// Package config loads service configuration from VAPN_-prefixed environment
 // variables and can dump the effective configuration with secrets redacted.
 package config
 
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const prefix = "CNIP_"
+const prefix = "VAPN_"
 
 // Source accumulates lookups so the effective config can be dumped at boot and
 // missing required keys reported as one error.

@@ -39,7 +39,7 @@ func (ICMP) Probe(ctx context.Context, target netip.Addr, params Params) (Result
 		}
 		echo := &icmp.Message{
 			Type: echoType(target), Code: 0,
-			Body: &icmp.Echo{ID: id, Seq: seq, Data: []byte("cnip-probe")},
+			Body: &icmp.Echo{ID: id, Seq: seq, Data: []byte("vapn-probe")},
 		}
 		wire, err := echo.Marshal(nil)
 		if err != nil {

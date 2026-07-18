@@ -25,9 +25,9 @@ implementation guide.
 The dev compose coordinator/aggregator point at the mockadvisor stub:
 
 ```sh
-docker logs cnip-dev-aggregator-1 2>&1 | grep "published to VPS Advisor" | tail -3
-docker logs cnip-dev-mockadvisor-1 2>&1 | grep "received provider status" | tail -3
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
+docker logs vapn-dev-aggregator-1 2>&1 | grep "published to VPS Advisor" | tail -3
+docker logs vapn-dev-mockadvisor-1 2>&1 | grep "received provider status" | tail -3
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c \
   "select kind, count(*) filter (where acked_at is not null) acked,
           count(*) filter (where acked_at is null) queued
    from aggregation.publication_outbox group by 1;"

@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const advisoryLockID = 0x434e4950 // "CNIP"
+const advisoryLockID = 0x5641504e // "VAPN"
 
 // Apply runs all pending migrations from dir. It is idempotent.
 func Apply(ctx context.Context, pool *pgxpool.Pool, dir string, log *slog.Logger) error {

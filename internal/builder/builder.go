@@ -47,7 +47,7 @@ func New(cfg Config, pool *pgxpool.Pool, adv *advisor.Client, pub *artifact.Publ
 // ErrSanityGate is returned when the new snapshot deviates too much from the
 // previous one and SanityForce is not set. The snapshot row is left in state
 // 'building' for admin review; the previous snapshot stays published.
-var ErrSanityGate = fmt.Errorf("sanity gate tripped; snapshot held in 'building' (set CNIP_SANITY_FORCE=true to override)")
+var ErrSanityGate = fmt.Errorf("sanity gate tripped; snapshot held in 'building' (set VAPN_SANITY_FORCE=true to override)")
 
 type prefixRow struct {
 	prefix   netip.Prefix

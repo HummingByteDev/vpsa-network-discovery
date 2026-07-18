@@ -1,6 +1,6 @@
 // Package logging provides the platform-wide structured logger.
 //
-// All services log JSON to stdout. Level comes from CNIP_LOG_LEVEL
+// All services log JSON to stdout. Level comes from VAPN_LOG_LEVEL
 // (debug|info|warn|error, default info).
 package logging
 
@@ -14,7 +14,7 @@ import (
 
 func New(service string) *slog.Logger {
 	level := slog.LevelInfo
-	switch strings.ToLower(os.Getenv("CNIP_LOG_LEVEL")) {
+	switch strings.ToLower(os.Getenv("VAPN_LOG_LEVEL")) {
 	case "debug":
 		level = slog.LevelDebug
 	case "warn":

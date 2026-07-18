@@ -63,7 +63,7 @@ func main() {
 		os.Exit(1)
 	}
 	if store == nil {
-		log.Error("artifact store required: set CNIP_ARTIFACT_S3_ENDPOINT or CNIP_ARTIFACT_DIR")
+		log.Error("artifact store required: set VAPN_ARTIFACT_S3_ENDPOINT or VAPN_ARTIFACT_DIR")
 		os.Exit(1)
 	}
 

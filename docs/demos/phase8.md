@@ -20,7 +20,7 @@ Per 5-minute window (60 s in dev), per provider:
    Phase 5 live run, baked into the math).
 4. Verdict over responsive targets measured this window:
    ≥90% up → `healthy`, ≥50% → `degraded`, else `outage`; fewer than
-   `CNIP_MIN_WORKERS` distinct workers (default 3) → `insufficient_data`,
+   `VAPN_MIN_WORKERS` distinct workers (default 3) → `insufficient_data`,
    confidence 0 — the platform never guesses.
 5. Confidence = worker-diversity factor × (1 − dissent); dissent is how split
    the weighted vote was.
@@ -46,7 +46,7 @@ outage isn't punished by the instantaneous majority.
 ## Watch it live
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c "
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c "
 select p.name, s.verdict, round(s.confidence::numeric,2) conf, s.since, s.metrics
 from aggregation.provider_status s join routing.provider p using (provider_id);
 

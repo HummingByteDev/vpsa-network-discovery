@@ -161,7 +161,7 @@ func TestSchedulerSimulation(t *testing.T) {
 	alive := clients[5:]
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		time.Sleep(1200 * time.Millisecond) // past the 1s test lease TTL
+		time.Sleep(800 * time.Millisecond) // < the 2.5s TTL: alive renew in time, dead expire
 		leaseAll(alive)
 		var uncovered int
 		if err := e.pool.QueryRow(ctx, `select count(*) from scheduling.assignment a

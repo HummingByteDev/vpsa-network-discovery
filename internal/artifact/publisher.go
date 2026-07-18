@@ -29,7 +29,7 @@ type Publisher struct {
 // move the current pointer — that happens in SetCurrent after the database
 // publish succeeds, so a half-finished publication is never visible.
 func (p *Publisher) Publish(ctx context.Context, snapshotID int64, version string) (*Manifest, error) {
-	dir, err := os.MkdirTemp("", "cnip-artifact-*")
+	dir, err := os.MkdirTemp("", "vapn-artifact-*")
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (p *Publisher) verifyReadback(ctx context.Context, m *Manifest) error {
 		return err
 	}
 	defer obj.Close()
-	tmp, err := os.CreateTemp("", "cnip-readback-*")
+	tmp, err := os.CreateTemp("", "vapn-readback-*")
 	if err != nil {
 		return err
 	}

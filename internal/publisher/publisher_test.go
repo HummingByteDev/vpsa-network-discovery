@@ -19,9 +19,9 @@ import (
 
 func setupDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("CNIP_TEST_DB_DSN")
+	dsn := os.Getenv("VAPN_TEST_DB_DSN")
 	if dsn == "" {
-		t.Skip("CNIP_TEST_DB_DSN not set; skipping DB integration test")
+		t.Skip("VAPN_TEST_DB_DSN not set; skipping DB integration test")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

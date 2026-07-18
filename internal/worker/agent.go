@@ -81,7 +81,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 func (a *Agent) register(ctx context.Context) error {
 	if a.cfg.EnrollmentToken == "" {
-		return fmt.Errorf("first boot requires CNIP_ENROLLMENT_TOKEN")
+		return fmt.Errorf("first boot requires VAPN_ENROLLMENT_TOKEN")
 	}
 	// The coordinator may not be up yet (compose start order): retry briefly.
 	var resp *RegisterResponse

@@ -23,7 +23,7 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/worker"
 )
 
-// Integration tests gated on CNIP_TEST_DB_DSN. They truncate the registry
+// Integration tests gated on VAPN_TEST_DB_DSN. They truncate the registry
 // schema of the target database.
 
 const adminToken = "test-admin"
@@ -38,9 +38,9 @@ type env struct {
 
 func setup(t *testing.T, devToken string) *env {
 	t.Helper()
-	dsn := os.Getenv("CNIP_TEST_DB_DSN")
+	dsn := os.Getenv("VAPN_TEST_DB_DSN")
 	if dsn == "" {
-		t.Skip("CNIP_TEST_DB_DSN not set; skipping DB integration test")
+		t.Skip("VAPN_TEST_DB_DSN not set; skipping DB integration test")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
@@ -118,7 +118,7 @@ func setup(t *testing.T, devToken string) *env {
 
 	reg := &registry.Store{Pool: pool}
 	api := New(Config{AdminToken: adminToken, DevEnrollmentToken: devToken,
-		SnapshotPollTTL: time.Millisecond, LeaseTTL: time.Second,
+		SnapshotPollTTL: time.Millisecond, LeaseTTL: 2500 * time.Millisecond,
 		MaxAssignmentsPerWorker: 12}, reg, store, log)
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)

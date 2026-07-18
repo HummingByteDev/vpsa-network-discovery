@@ -20,7 +20,7 @@ tidy:
 check: vet test build
 
 migrate: build
-	CNIP_DB_DSN=$${CNIP_DB_DSN:-postgres://cnip:cnip-dev@localhost:5433/cnip} ./bin/migrate
+	VAPN_DB_DSN=$${VAPN_DB_DSN:-postgres://vapn:vapn-dev@localhost:5433/vapn} ./bin/migrate
 
 dev-up:
 	$(COMPOSE) up -d --build

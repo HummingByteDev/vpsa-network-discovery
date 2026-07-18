@@ -1,5 +1,5 @@
 # Single Dockerfile for every platform component; select with COMPONENT.
-#   docker build --build-arg COMPONENT=coordinator -t cnip/coordinator .
+#   docker build --build-arg COMPONENT=coordinator -t vapn/coordinator .
 ARG COMPONENT=coordinator
 
 FROM golang:1.26 AS build
@@ -22,5 +22,5 @@ ARG COMPONENT
 COPY --from=build /out/app /app
 # migrate needs the SQL files alongside the binary
 COPY migrations/ /migrations/
-ENV CNIP_MIGRATIONS_DIR=/migrations
+ENV VAPN_MIGRATIONS_DIR=/migrations
 ENTRYPOINT ["/app"]

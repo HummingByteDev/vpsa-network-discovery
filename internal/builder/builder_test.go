@@ -22,8 +22,8 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/migrate"
 )
 
-// End-to-end pipeline test against a real database. Gated on CNIP_TEST_DB_DSN
-// (CI sets it; locally: postgres://cnip:cnip-dev@localhost:5433/cnip).
+// End-to-end pipeline test against a real database. Gated on VAPN_TEST_DB_DSN
+// (CI sets it; locally: postgres://vapn:vapn-dev@localhost:5433/vapn).
 // The test uses its own schemas-per-run? No — it truncates the routing schema,
 // so never point it at a database whose routing data you care about.
 
@@ -40,9 +40,9 @@ const fixtureJSON = `{
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("CNIP_TEST_DB_DSN")
+	dsn := os.Getenv("VAPN_TEST_DB_DSN")
 	if dsn == "" {
-		t.Skip("CNIP_TEST_DB_DSN not set; skipping DB integration test")
+		t.Skip("VAPN_TEST_DB_DSN not set; skipping DB integration test")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

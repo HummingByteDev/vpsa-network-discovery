@@ -1,6 +1,6 @@
 // Command worker is the community-run measurement agent. First boot needs
-// only CNIP_ENROLLMENT_TOKEN and CNIP_COORDINATOR_URL (plus the pinned
-// CNIP_SNAPSHOT_PUBLIC_KEY baked into distributed images); everything else is
+// only VAPN_ENROLLMENT_TOKEN and VAPN_COORDINATOR_URL (plus the pinned
+// VAPN_SNAPSHOT_PUBLIC_KEY baked into distributed images); everything else is
 // automatic. `worker doctor` prints a self-diagnosis. Probing lands in
 // Phase 5.
 package main

@@ -16,7 +16,7 @@ make dev-up          # or: docker compose -f deploy/compose/dev.compose.yaml up 
 ```
 
 Services: `postgres` (host port **5433**), `minio` (9000/9001, bucket
-`cnip-artifacts` auto-created), `mockadvisor` (8081), `coordinator` (8080),
+`vapn-artifacts` auto-created), `mockadvisor` (8081), `coordinator` (8080),
 `aggregator` (8082). The one-shot `migrate` service applies all schema migrations
 before coordinator/aggregator start.
 
@@ -33,7 +33,7 @@ curl -H "Authorization: Bearer dev-advisor-token" \
 curl -sw "%{http_code}\n" -o /dev/null localhost:8081/api/v1/monitoring/asns   # → 401
 
 # schemas exist
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c "\dt routing.*"
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c "\dt routing.*"
 
 # migrations are idempotent
 docker compose -f deploy/compose/dev.compose.yaml run --rm migrate

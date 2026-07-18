@@ -1,6 +1,6 @@
 # Local development environment. From the repo root:
 #   docker compose -f deploy/compose/dev.compose.yaml up -d
-name: cnip-dev
+name: vapn-dev
 
 x-build: &platform-build
   context: ../..
@@ -10,13 +10,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: cnip
-      POSTGRES_PASSWORD: cnip-dev
-      POSTGRES_DB: cnip
+      POSTGRES_USER: vapn
+      POSTGRES_PASSWORD: vapn-dev
+      POSTGRES_DB: vapn
     ports: ["5433:5432"]   # host 5433: avoids clashing with a locally installed postgres
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cnip -d cnip"]
+      test: ["CMD-SHELL", "pg_isready -U vapn -d vapn"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -25,8 +25,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: cnip
-      MINIO_ROOT_PASSWORD: cnip-dev-secret
+      MINIO_ROOT_USER: vapn
+      MINIO_ROOT_PASSWORD: vapn-dev-secret
     ports: ["9000:9000", "9001:9001"]
     volumes: [miniodata:/data]
     healthcheck:
@@ -41,36 +41,36 @@ services:
       minio: { condition: service_healthy }
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 cnip cnip-dev-secret &&
-      mc mb --ignore-existing local/cnip-artifacts &&
+      mc alias set local http://minio:9000 vapn vapn-dev-secret &&
+      mc mb --ignore-existing local/vapn-artifacts &&
       echo artifact bucket ready"
 
   migrate:
     build: { <<: *platform-build, args: { COMPONENT: migrate } }
     environment:
-      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
+      VAPN_DB_DSN: postgres://vapn:vapn-dev@postgres:5432/vapn
     depends_on:
       postgres: { condition: service_healthy }
     restart: "no"
 
   # One-shot snapshot build inside the stack:
   #   docker compose -f deploy/compose/dev.compose.yaml --profile build run --rm builder
-  # Requires CNIP_SNAPSHOT_SIGNING_KEY in the environment (./bin/keygen) and
+  # Requires VAPN_SNAPSHOT_SIGNING_KEY in the environment (./bin/keygen) and
   # the data/ directory populated (RIS bview + extracted GeoLite2 mmdb).
   builder:
     build: { <<: *platform-build, args: { COMPONENT: builder } }
     profiles: [build]
     environment:
-      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
-      CNIP_ADVISOR_URL: http://mockadvisor:8081
-      CNIP_ADVISOR_TOKEN: dev-advisor-token
-      CNIP_RIS_BVIEW_PATH: /data/ripe/latest-bview.gz
-      CNIP_GEOIP_CITY_MMDB: /data/geo-data/GeoLite2-City.mmdb
-      CNIP_ARTIFACT_S3_ENDPOINT: minio:9000
-      CNIP_ARTIFACT_S3_ACCESS_KEY: cnip
-      CNIP_ARTIFACT_S3_SECRET_KEY: cnip-dev-secret
-      CNIP_ARTIFACT_S3_USE_SSL: "false"
-      CNIP_SNAPSHOT_SIGNING_KEY: ${CNIP_SNAPSHOT_SIGNING_KEY:-}
+      VAPN_DB_DSN: postgres://vapn:vapn-dev@postgres:5432/vapn
+      VAPN_ADVISOR_URL: http://mockadvisor:8081
+      VAPN_ADVISOR_TOKEN: dev-advisor-token
+      VAPN_RIS_BVIEW_PATH: /data/ripe/latest-bview.gz
+      VAPN_GEOIP_CITY_MMDB: /data/geo-data/GeoLite2-City.mmdb
+      VAPN_ARTIFACT_S3_ENDPOINT: minio:9000
+      VAPN_ARTIFACT_S3_ACCESS_KEY: vapn
+      VAPN_ARTIFACT_S3_SECRET_KEY: vapn-dev-secret
+      VAPN_ARTIFACT_S3_USE_SSL: "false"
+      VAPN_SNAPSHOT_SIGNING_KEY: ${VAPN_SNAPSHOT_SIGNING_KEY:-}
     volumes: ["../../data:/data:ro"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -80,23 +80,23 @@ services:
   mockadvisor:
     build: { <<: *platform-build, args: { COMPONENT: mockadvisor } }
     environment:
-      CNIP_HTTP_ADDR: ":8081"
-      CNIP_ADVISOR_TOKEN: dev-advisor-token
+      VAPN_HTTP_ADDR: ":8081"
+      VAPN_ADVISOR_TOKEN: dev-advisor-token
     ports: ["8081:8081"]
 
   coordinator:
     build: { <<: *platform-build, args: { COMPONENT: coordinator } }
     environment:
-      CNIP_HTTP_ADDR: ":8080"
-      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
-      CNIP_ADMIN_TOKEN: dev-admin-token
-      CNIP_DEV_ENROLLMENT_TOKEN: dev-worker-token   # dev only: auto-enroll + auto-approve
-      CNIP_ARTIFACT_S3_ENDPOINT: minio:9000
-      CNIP_ARTIFACT_S3_ACCESS_KEY: cnip
-      CNIP_ARTIFACT_S3_SECRET_KEY: cnip-dev-secret
-      CNIP_ARTIFACT_S3_USE_SSL: "false"
-      CNIP_ADVISOR_URL: http://mockadvisor:8081
-      CNIP_ADVISOR_TOKEN: dev-advisor-token
+      VAPN_HTTP_ADDR: ":8080"
+      VAPN_DB_DSN: postgres://vapn:vapn-dev@postgres:5432/vapn
+      VAPN_ADMIN_TOKEN: dev-admin-token
+      VAPN_DEV_ENROLLMENT_TOKEN: dev-worker-token   # dev only: auto-enroll + auto-approve
+      VAPN_ARTIFACT_S3_ENDPOINT: minio:9000
+      VAPN_ARTIFACT_S3_ACCESS_KEY: vapn
+      VAPN_ARTIFACT_S3_SECRET_KEY: vapn-dev-secret
+      VAPN_ARTIFACT_S3_USE_SSL: "false"
+      VAPN_ADVISOR_URL: http://mockadvisor:8081
+      VAPN_ADVISOR_TOKEN: dev-advisor-token
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -105,7 +105,7 @@ services:
 
   # Community worker fleet (3 replicas). Each replica generates its own
   # keypair, auto-enrolls with the dev token, and converges on the current
-  # snapshot. CNIP_SNAPSHOT_PUBLIC_KEY must match the builder's signing key
+  # snapshot. VAPN_SNAPSHOT_PUBLIC_KEY must match the builder's signing key
   # (./bin/keygen output, exported in the host environment).
   worker:
     build: { <<: *platform-build, args: { COMPONENT: worker } }
@@ -114,23 +114,23 @@ services:
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"   # unprivileged datagram ICMP
     environment:
-      CNIP_COORDINATOR_URL: http://coordinator:8080
-      CNIP_ENROLLMENT_TOKEN: dev-worker-token
-      CNIP_STATE_DIR: /tmp/state          # ephemeral in dev; a volume in production
-      CNIP_HEARTBEAT_INTERVAL: 5s
-      CNIP_SNAPSHOT_PUBLIC_KEY: ${CNIP_SNAPSHOT_PUBLIC_KEY:-}
+      VAPN_COORDINATOR_URL: http://coordinator:8080
+      VAPN_ENROLLMENT_TOKEN: dev-worker-token
+      VAPN_STATE_DIR: /tmp/state          # ephemeral in dev; a volume in production
+      VAPN_HEARTBEAT_INTERVAL: 5s
+      VAPN_SNAPSHOT_PUBLIC_KEY: ${VAPN_SNAPSHOT_PUBLIC_KEY:-}
     depends_on:
       coordinator: { condition: service_started }
 
   aggregator:
     build: { <<: *platform-build, args: { COMPONENT: aggregator } }
     environment:
-      CNIP_HTTP_ADDR: ":8082"
-      CNIP_DB_DSN: postgres://cnip:cnip-dev@postgres:5432/cnip
-      CNIP_WINDOW_SECONDS: "60"   # fast windows for dev visibility
-      CNIP_MIN_WORKERS: "2"       # small dev fleet; production default is 3
-      CNIP_ADVISOR_URL: http://mockadvisor:8081
-      CNIP_ADVISOR_TOKEN: dev-advisor-token
+      VAPN_HTTP_ADDR: ":8082"
+      VAPN_DB_DSN: postgres://vapn:vapn-dev@postgres:5432/vapn
+      VAPN_WINDOW_SECONDS: "60"   # fast windows for dev visibility
+      VAPN_MIN_WORKERS: "2"       # small dev fleet; production default is 3
+      VAPN_ADVISOR_URL: http://mockadvisor:8081
+      VAPN_ADVISOR_TOKEN: dev-advisor-token
     ports: ["8082:8082"]
     depends_on:
       postgres: { condition: service_healthy }

@@ -64,7 +64,7 @@ func main() {
 	if store != nil {
 		key, err := artifact.ParseSigningKey(signingKeyB64)
 		if err != nil {
-			log.Error("artifact store configured but CNIP_SNAPSHOT_SIGNING_KEY unusable", "error", err)
+			log.Error("artifact store configured but VAPN_SNAPSHOT_SIGNING_KEY unusable", "error", err)
 			os.Exit(1)
 		}
 		pub = &artifact.Publisher{Pool: pool, Store: store, Key: key,

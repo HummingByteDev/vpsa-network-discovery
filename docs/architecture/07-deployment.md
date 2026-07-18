@@ -6,11 +6,11 @@ Every deployable is a container image built from this monorepo:
 
 | Image | Contents | Runs as |
 |---|---|---|
-| `cnip/builder` | snapshot builder binary | scheduled job (cron / K8s CronJob) |
-| `cnip/coordinator` | coordinator API + scheduler | long-running, horizontally scalable |
-| `cnip/aggregator` | aggregation engine + trust scoring + publisher | long-running (leader-elected or single) |
-| `cnip/worker` | worker agent + probe engine | community-run container |
-| `cnip/migrate` | migration runner | init job |
+| `vapn/builder` | snapshot builder binary | scheduled job (cron / K8s CronJob) |
+| `vapn/coordinator` | coordinator API + scheduler | long-running, horizontally scalable |
+| `vapn/aggregator` | aggregation engine + trust scoring + publisher | long-running (leader-elected or single) |
+| `vapn/worker` | worker agent + probe engine | community-run container |
+| `vapn/migrate` | migration runner | init job |
 
 Monorepo layout (planned):
 
@@ -52,13 +52,13 @@ S3-compatible API. The store configuration is deliberately provider-agnostic —
 switching S3 providers is an environment change only (decision 2026-07-18),
 never a code change:
 
-| Provider | `CNIP_ARTIFACT_S3_ENDPOINT` | Notes |
+| Provider | `VAPN_ARTIFACT_S3_ENDPOINT` | Notes |
 |---|---|---|
 | Backblaze B2 | `s3.<region>.backblazeb2.com` | application key ID/secret as access/secret |
-| Cloudflare R2 | `<account-id>.r2.cloudflarestorage.com` | set `CNIP_ARTIFACT_S3_REGION=auto` |
-| AWS S3 | `s3.<region>.amazonaws.com` | set `CNIP_ARTIFACT_S3_REGION` |
-| minio (dev) | `localhost:9000` | `CNIP_ARTIFACT_S3_USE_SSL=false` |
-| filesystem | — | `CNIP_ARTIFACT_DIR=/path` (tests, single host) |
+| Cloudflare R2 | `<account-id>.r2.cloudflarestorage.com` | set `VAPN_ARTIFACT_S3_REGION=auto` |
+| AWS S3 | `s3.<region>.amazonaws.com` | set `VAPN_ARTIFACT_S3_REGION` |
+| minio (dev) | `localhost:9000` | `VAPN_ARTIFACT_S3_USE_SSL=false` |
+| filesystem | — | `VAPN_ARTIFACT_DIR=/path` (tests, single host) |
 
 Pair with a CDN (e.g. Cloudflare, free egress from B2) for worker downloads at
 scale.
@@ -74,12 +74,12 @@ One documented command:
 # docker-compose.yml the operator downloads
 services:
   worker:
-    image: ghcr.io/vpsadvisor/cnip-worker:latest
+    image: ghcr.io/vpsadvisor/vapn-worker:latest
     cap_add: [NET_RAW]
     environment:
-      CNIP_ENROLLMENT_TOKEN: "…"        # only required setting
-      CNIP_COORDINATOR_URL: "https://probe-api.vpsadvisor.example"
-      # CNIP_MAXMIND_LICENSE_KEY: "…"   # optional; operator's own key (see R8)
+      VAPN_ENROLLMENT_TOKEN: "…"        # only required setting
+      VAPN_COORDINATOR_URL: "https://probe-api.vpsadvisor.example"
+      # VAPN_MAXMIND_LICENSE_KEY: "…"   # optional; operator's own key (see R8)
     volumes: [worker-state:/state]
     restart: unless-stopped
 volumes: { worker-state: }

@@ -18,10 +18,10 @@ derivation, sanity gate, and atomic publish/supersede.
 
 ```sh
 make build
-CNIP_DB_DSN=postgres://cnip:cnip-dev@localhost:5433/cnip \
-CNIP_ADVISOR_URL=http://localhost:8081 \
-CNIP_ADVISOR_TOKEN=dev-advisor-token \
-CNIP_GEOIP_CITY_MMDB=data/geo-data/GeoLite2-City.mmdb \
+VAPN_DB_DSN=postgres://vapn:vapn-dev@localhost:5433/vapn \
+VAPN_ADVISOR_URL=http://localhost:8081 \
+VAPN_ADVISOR_TOKEN=dev-advisor-token \
+VAPN_GEOIP_CITY_MMDB=data/geo-data/GeoLite2-City.mmdb \
 ./bin/builder
 ```
 
@@ -31,14 +31,14 @@ Hetzner 24940, OVH 16276, DigitalOcean 14061, Contabo 51167), extraction over
 Reference result on the bundled June 2026 bview: 2,267 prefixes (2,194 v4 /
 73 v6), 2,266 geolocated, 5 MOAS-flagged, 462 probe targets.
 
-Useful knobs: `CNIP_MAX_TARGETS_PER_PROVIDER` (default 100 per address family),
-`CNIP_SANITY_MAX_DELTA_PCT` (default 50), `CNIP_SANITY_FORCE=true` to override
+Useful knobs: `VAPN_MAX_TARGETS_PER_PROVIDER` (default 100 per address family),
+`VAPN_SANITY_MAX_DELTA_PCT` (default 50), `VAPN_SANITY_FORCE=true` to override
 a tripped gate (exit code 2 = snapshot held in `building` for review).
 
 ## 2. Inspect the result
 
 ```sh
-psql postgres://cnip:cnip-dev@localhost:5433/cnip <<'SQL'
+psql postgres://vapn:vapn-dev@localhost:5433/vapn <<'SQL'
 select version, status, asn_count, prefix_count_v4, prefix_count_v6
   from routing.snapshot order by id desc limit 3;
 
@@ -74,7 +74,7 @@ artifact export of the published snapshot is Phase 3.
 
 ```sh
 make test                                  # golden-file MRT tests, bogon table tests
-CNIP_TEST_DB_DSN=postgres://cnip:cnip-dev@localhost:5433/cnip make test   # + end-to-end pipeline
+VAPN_TEST_DB_DSN=postgres://vapn:vapn-dev@localhost:5433/vapn make test   # + end-to-end pipeline
 ```
 
 The golden-file tests build a synthetic bview (via gobgp serialization) with

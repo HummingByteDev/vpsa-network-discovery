@@ -103,7 +103,7 @@ func (s *Scheduler) Reconcile(ctx context.Context) error {
 		insert into scheduling.assignment
 		  (target_id, provider_id, probe_type, interval_seconds, redundancy_group)
 		select e.target_id, e.provider_id, 'icmp', e.interval_seconds,
-		       md5('cnip-group-' || e.target_id)::uuid
+		       md5('vapn-group-' || e.target_id)::uuid
 		from eligible e
 		cross join generate_series(1, $1) as slot
 		left join existing x on x.target_id = e.target_id

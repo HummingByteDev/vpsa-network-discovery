@@ -6,7 +6,7 @@ Platform (this repository, "the platform") can operate against it. The
 platform side of every flow described here is already implemented and tested
 against a stub of this exact contract (`internal/mockadvisor`) — implement to
 this document and integration is a config change on our side
-(`CNIP_ADVISOR_URL` + credential).
+(`VAPN_ADVISOR_URL` + credential).
 
 Related reading: [architecture/04-api-contracts.md](../architecture/04-api-contracts.md)
 (contract overview), [architecture/01-system-architecture.md](../architecture/01-system-architecture.md)

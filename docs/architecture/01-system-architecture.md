@@ -45,7 +45,7 @@ shared trust anchor (see [05-security-trust-model.md](05-security-trust-model.md
                API (pull)      │             │ worker telemetry (push)
                                ▼             │
 ┌──────────────────────────────────────────────────────────────────┐
-│              Community Network Intelligence Platform              │
+│              VPS Advisor Probe Network (VAPN)              │
 │                                                                   │
 │  ┌──────────────┐   ┌──────────────┐   ┌───────────────────────┐ │
 │  │  Snapshot    │   │ Coordinator  │   │  Aggregation Engine    │ │

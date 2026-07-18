@@ -1,4 +1,4 @@
-# Community Network Intelligence Platform
+# VPS Advisor Probe Network (VAPN)
 
 The distributed network observability backend for [VPS Advisor]: community-operated
 worker nodes measure the public network health of VPS providers listed on VPS Advisor;

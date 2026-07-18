@@ -1,4 +1,4 @@
-# Architecture — Community Network Intelligence Platform
+# Architecture — VPS Advisor Probe Network (VAPN)
 
 This directory contains the Phase 1 architectural analysis required by the project brief
 (`CLAUDE.md`). **No implementation exists yet**; per the implementation strategy, coding

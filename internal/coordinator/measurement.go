@@ -74,8 +74,11 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 	}
 	if want := req.Capacity - held; want > 0 {
 		// Claim rules: never two replicas of one redundancy group on the same
-		// worker; never a target inside the worker's own network (self-ASN
-		// exclusion); SKIP LOCKED keeps concurrent claimants from colliding.
+		// worker — enforced against held leases (mine) AND within this call
+		// (distinct on redundancy_group), so a worker re-leasing wholesale
+		// after its leases expired cannot swallow a whole group; never a
+		// target inside the worker's own network (self-ASN exclusion);
+		// SKIP LOCKED keeps concurrent claimants from colliding.
 		if _, err := tx.Exec(ctx, `with me as (
 				select source_asn from registry.worker where id = $1
 			), mine as (
@@ -83,13 +86,18 @@ func (s *Server) leaseAssignments(w http.ResponseWriter, r *http.Request) {
 				from scheduling.lease l
 				join scheduling.assignment a on a.id = l.assignment_id
 				where l.worker_id = $1 and l.released_at is null
-			), claimed as (
-				select a.id from scheduling.assignment a, me
+			), candidates as (
+				select distinct on (a.redundancy_group) a.id
+				from scheduling.assignment a, me
 				where a.status = 'open'
 				  and not exists (select 1 from mine m where m.redundancy_group = a.redundancy_group)
 				  and not exists (
 				    select 1 from routing.asn ra
 				    where ra.provider_id = a.provider_id and ra.asn = me.source_asn)
+				order by a.redundancy_group, a.id
+			), claimed as (
+				select a.id from scheduling.assignment a
+				where a.id in (select id from candidates) and a.status = 'open'
 				order by a.id
 				for update skip locked limit $2
 			), marked as (

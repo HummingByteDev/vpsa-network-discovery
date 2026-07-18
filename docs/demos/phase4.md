@@ -11,19 +11,19 @@ replay-nonce tracking and trust scoring are Phase 6.
 
 ```sh
 make build && ./bin/keygen          # once; export both variables
-export CNIP_SNAPSHOT_SIGNING_KEY=… CNIP_SNAPSHOT_PUBLIC_KEY=…
+export VAPN_SNAPSHOT_SIGNING_KEY=… VAPN_SNAPSHOT_PUBLIC_KEY=…
 make dev-up                          # stack + 3 worker replicas
 ```
 
-Workers auto-enroll with the shared dev token (`CNIP_DEV_ENROLLMENT_TOKEN`,
+Workers auto-enroll with the shared dev token (`VAPN_DEV_ENROLLMENT_TOKEN`,
 coordinator-side; **dev only** — production workers enroll via one-time tokens
 from VPS Advisor). Within one heartbeat (5 s in dev) each worker downloads the
 current artifact through the coordinator, verifies the manifest signature
-against the pinned `CNIP_SNAPSHOT_PUBLIC_KEY` plus the file hash, and installs
+against the pinned `VAPN_SNAPSHOT_PUBLIC_KEY` plus the file hash, and installs
 it atomically:
 
 ```sh
-docker logs cnip-dev-worker-1 | tail   # → "registered", "snapshot installed"
+docker logs vapn-dev-worker-1 | tail   # → "registered", "snapshot installed"
 ```
 
 ## 2. Admin surface
@@ -47,7 +47,7 @@ stop and the fleet view shows the state and reason. Every transition lands in
 ## 3. Worker self-diagnosis
 
 ```sh
-docker exec cnip-dev-worker-1 /app doctor
+docker exec vapn-dev-worker-1 /app doctor
 # ✓ identity key            ok
 # ✓ registration            ok
 # ✓ coordinator reachable   ok
@@ -65,7 +65,7 @@ enrollment; ±2 min timestamp window. Unsigned or wrongly signed requests get
 
 ## 5. Tests
 
-`CNIP_TEST_DB_DSN=… go test ./internal/coordinator/ ./internal/wireauth/`:
+`VAPN_TEST_DB_DSN=… go test ./internal/coordinator/ ./internal/wireauth/`:
 production enrollment flow (pending workers heartbeat but receive no
 snapshot; approval unlocks sync), dev auto-enrollment, suspension lockout
 within one heartbeat, wrong-key rejection, plus wireauth unit tests (tampered

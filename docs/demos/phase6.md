@@ -14,7 +14,7 @@ pruned after 2× the ±2 min timestamp window (coordinator maintenance loop), so
 the table stays tiny while covering every timestamp still accepted.
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c \
   "select event_type, count(*) from registry.trust_event group by 1;"
 ```
 
@@ -32,14 +32,14 @@ docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
 ```sh
 AUTH='Authorization: Bearer dev-admin-token'
 curl -s -H "$AUTH" -X POST localhost:8080/admin/v1/workers/<id>/rotate-key -i
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c \
   "select worker_id, valid_from, valid_until, revoked_at from registry.worker_key order by id;"
 ```
 
 ## Trust score (skeleton)
 
 The aggregator recomputes per-worker trust every minute
-(`CNIP_TRUST_INTERVAL`):
+(`VAPN_TRUST_INTERVAL`):
 
 ```
 score = clamp( availability × (0.3 + 0.7 × tenure) − penalty , 0, 1 )
@@ -54,7 +54,7 @@ aggregation windows exist to score against. Non-`active` workers always weigh
 0 in consensus regardless of score (invariant from the architecture).
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c \
   "select worker_id, round(score::numeric,3) score, components from registry.trust_score;"
 ```
 
@@ -65,7 +65,7 @@ recorded in `audit.event` (append-only; audit write failures are loud in logs
 but never take the platform down):
 
 ```sh
-docker exec cnip-dev-postgres-1 psql -U cnip -d cnip -c \
+docker exec vapn-dev-postgres-1 psql -U vapn -d vapn -c \
   "select category, actor, action, subject, created_at from audit.event order by id desc limit 10;"
 ```
 
