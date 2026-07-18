@@ -1,8 +1,14 @@
 # VAPN Operations
 
+> Part of the [VAPN documentation](../README.md). New to the system? Start with
+> [Architecture](../architecture/01-system-architecture.md) and the
+> [end-to-end walkthrough](../walkthroughs/end-to-end.md).
+
 Operator documentation for running the platform side of VAPN (coordinator,
 aggregator, builder, database, edge). For the community worker experience see
-[docs/worker/](../worker/); for architecture see [docs/architecture/](../architecture/).
+[Community Workers](../worker/README.md); for the routing builder see
+[the builder guide](../builder/README.md); for architecture see
+[docs/architecture/](../architecture/README.md).
 
 | Document | Covers |
 |---|---|

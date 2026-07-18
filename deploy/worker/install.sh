@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# VAPN worker bootstrap — the `curl -fsSL https://install.vpsadvisor.com | bash`
+# VAPN worker bootstrap — the canonical
+#   curl -fsSL https://raw.githubusercontent.com/HummingByteDev/vpsa-network-discovery/main/deploy/worker/install.sh | bash
 # entrypoint. Installs the `vapn` CLI for this machine's architecture, then
 # hands over to `vapn install` (interactive: coordinator URL, enrollment
 # token, system checks, start, verify).

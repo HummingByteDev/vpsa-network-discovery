@@ -1,89 +1,74 @@
-# Running a VAPN Worker
+# Community Workers
 
-Thank you for contributing measurement capacity to the VPS Advisor Probe
-Network. A worker is a small Docker container that pings VPS providers'
-public networks from your vantage point and reports signed measurements.
-It uses a few MB of RAM, negligible CPU, and a trickle of bandwidth.
+A **worker** is a small program you run that measures VPS providers' public
+network health from your location and reports signed results back to the
+network. Thousands of workers, run by the community from many places, are what
+make VAPN's verdicts trustworthy — no single one is trusted on its own.
 
-**You stay in control**: pause, resume, or remove the worker at any time.
-Providers being measured can opt out at any time too — the target list your
-worker uses comes exclusively from providers listed on VPS Advisor.
+Thank you for considering running one. This section is everything you need,
+from "what is it" to "how do I leave."
 
-## Install
+> **Just want it running?** → [Quick Start](../getting-started/quickstart.md)
+> (a worker in ~5 minutes). This section is the reference behind it.
 
-Requirements: Linux (amd64/arm64), Docker, and an **enrollment token** from
-your VPS Advisor dashboard (My Workers → Create worker).
+## What a worker is, in one paragraph
 
-```sh
-curl -fsSL https://install.vpsadvisor.com | bash
-```
+It's a Docker container that, once approved, receives **assignments** from the
+platform (never chooses its own targets), sends a few lightweight
+[ICMP "ping"](../concepts/measurement-and-consensus.md#what-a-single-measurement-is)
+packets to the assigned provider addresses, times the replies, cryptographically
+signs the results with a key that never leaves your machine, and uploads them.
+It uses a few MB of RAM, negligible CPU, and a trickle of bandwidth. **You stay
+in control**: pause, resume, or remove it whenever you like.
 
-The installer detects Docker, downloads the `vapn` CLI, runs the system
-checks, asks for your token, starts the worker, and verifies it comes up:
+## This section
 
-```
-✓ Docker detected          ✓ Coordinator reachable
-✓ Disk space               ✓ Clock synchronization
-✓ Registration successful
-Worker ID: 9f30…
-Status: Awaiting approval
-```
+| Guide | What it covers |
+|---|---|
+| [Installation](installation.md) | Requirements and the full install flow (also: [Quick Start](../getting-started/quickstart.md)) |
+| [Command reference](command-reference.md) | Every `vapn` command with examples |
+| [Worker lifecycle](lifecycle.md) | Every state a worker moves through and why |
+| [Resource usage & privacy](resources-and-privacy.md) | Exactly what it costs you and what it does (and doesn't) see |
+| [Updating](../getting-started/updating.md) | Keeping it current, safely |
+| [Uninstalling](../getting-started/uninstalling.md) | Leaving cleanly |
+| [Troubleshooting](../getting-started/troubleshooting.md) · [FAQ](../getting-started/faq.md) | When something's off |
 
-Approval is manual (an admin reviews new workers); your worker begins
-probing automatically once approved — nothing more to do.
+## Why run one?
 
-## Day to day
+- **Help buyers make better decisions.** Your vantage point adds a real,
+  independent data point about provider health from your part of the world.
+- **It's nearly free to run.** A spare VPS or home server has plenty of headroom;
+  see [resource usage](resources-and-privacy.md#resource-usage).
+- **It's safe and private by design.** Your worker only probes addresses from a
+  signed, platform-provided list, reports nothing about your machine beyond its
+  own liveness and version, and your private key never leaves your host. See
+  [privacy](resources-and-privacy.md#privacy).
+
+## The short version of day-to-day
 
 ```sh
 vapn status        # health, snapshot, assignments, measurements submitted
 vapn logs -f       # live logs
-vapn pause         # stop probing (your assignments shift to other workers)
+vapn pause         # stop probing (identity + trust kept; resume any time)
 vapn resume
-vapn update        # pull latest image; health-gated with automatic rollback
+vapn update        # health-gated update with automatic rollback
 vapn doctor        # re-run the system checks
-vapn backup        # archive identity + config (contains your private key!)
+vapn uninstall     # remove everything (offers a clean unregister)
 ```
 
-Updates are automatic if you enable the timer (the installer offers it, or
-see `deploy/worker/vapn-update.*`): daily check, randomized hour, and if an
-updated worker fails to report healthy within two minutes it is rolled back
-to the previous image automatically.
+Full details: [command reference](command-reference.md).
+
+## How your worker earns its place
+
+New workers are **manually approved** (anti-abuse) and then build **trust** over
+time by agreeing with the consensus of other workers. Trust determines how much
+your measurements count. Misbehaving workers (bad clocks, tampered binaries)
+lose trust and are quarantined automatically. None of this needs your attention
+in the normal case — but if you're curious how it works, read
+[the trust concept](../concepts/measurement-and-consensus.md#trust) and the
+[lifecycle](lifecycle.md).
 
 Everything lives in `~/.vapn`; the worker is self-managing — it renews
-credentials, downloads new routing snapshots (cryptographically verified
-against a pinned key), retries failed uploads, and recovers from reboots
-(`restart: unless-stopped`) and network interruptions on its own. You
-should rarely need to SSH in.
-
-## Leaving
-
-```sh
-vapn uninstall
-```
-
-Offers to unregister your worker with the network (recommended) and to keep
-a backup, then removes containers, images, and `~/.vapn`. No orphaned
-resources, no hard feelings — thanks for the packets.
-
-## Privacy & conduct
-
-- The worker only probes IP addresses from the signed routing snapshot —
-  never targets of its own choosing; ICMP echo only, a few packets per
-  minute per target.
-- It reports measurements, its version, and liveness. It does not read
-  anything else on your machine.
-- Your worker's key never leaves your machine; the platform can verify your
-  measurements but cannot impersonate you.
-- Misbehaving workers (bad clocks, tampered binaries) lose trust weight and
-  are quarantined server-side — if that happens to you, `vapn doctor` and
-  `vapn logs` usually explain why.
-
-## Troubleshooting
-
-| Symptom | Try |
-|---|---|
-| `Awaiting approval` for long | Approval is human; check your VPS Advisor dashboard |
-| `Unreachable (last report …)` in status | `vapn logs`, then `vapn doctor` |
-| Clock check fails | Enable NTP (`timedatectl set-ntp true`) |
-| Docker permission errors | Add your user to the `docker` group, re-login |
-| Behind strict egress firewall | Allow HTTPS (443) to the coordinator domain |
+credentials, downloads and verifies new routing snapshots, retries failed
+uploads, and recovers from reboots on its own. You should rarely need to SSH in.
+Thanks for the packets.

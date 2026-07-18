@@ -1,8 +1,16 @@
 # Architecture — VPS Advisor Probe Network (VAPN)
 
-This directory contains the Phase 1 architectural analysis required by the project brief
-(`CLAUDE.md`). **No implementation exists yet**; per the implementation strategy, coding
-begins only after this architecture is approved.
+> Part of the [VAPN documentation](../README.md). For a gentler, first-principles
+> path into the same material, read [Core Concepts](../concepts/README.md) and the
+> [end-to-end walkthrough](../walkthroughs/end-to-end.md) first; this section is
+> the authoritative design record.
+
+This directory contains the architectural analysis required by the project brief
+(`CLAUDE.md`). It was written in Phase 1 as the design to be approved before coding;
+**all eleven phases are now implemented** (see [`docs/demos/`](../demos/) for runnable
+per-phase walkthroughs). The documents remain the canonical description of the design —
+where an implementation detail has since been fixed, the [Reference](../reference/README.md)
+and [API](../api/README.md) sections carry the current specifics.
 
 ## Documents
 
