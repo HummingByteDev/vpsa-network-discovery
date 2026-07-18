@@ -55,6 +55,9 @@ func New(cfg Config, reg *registry.Store, store artifact.Store, log *slog.Logger
 	mux.Handle("GET /api/v1/workers/me", s.signed(s.me))
 	mux.Handle("GET /api/v1/artifacts/routing/current", s.signed(s.currentManifest))
 	mux.Handle("GET /api/v1/artifacts/routing/current/download", s.signed(s.downloadArtifact))
+	mux.Handle("POST /api/v1/assignments/lease", s.signed(s.leaseAssignments))
+	mux.Handle("POST /api/v1/assignments/release", s.signed(s.releaseAssignments))
+	mux.Handle("POST /api/v1/observations", s.signed(s.uploadObservations))
 
 	mux.Handle("POST /admin/v1/workers", s.admin(s.adminCreateWorker))
 	mux.Handle("GET /admin/v1/workers", s.admin(s.adminListWorkers))

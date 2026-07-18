@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/observation"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/wireauth"
 )
 
@@ -117,6 +118,33 @@ func (c *Client) CurrentManifest(ctx context.Context) (*ManifestResponse, error)
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// Assignment is one probing instruction leased from the coordinator.
+type Assignment struct {
+	ID              int64           `json:"assignment_id"`
+	Target          string          `json:"target"`
+	ProbeType       string          `json:"probe_type"`
+	IntervalSeconds int             `json:"interval_seconds"`
+	Params          json.RawMessage `json:"params,omitempty"`
+}
+
+func (c *Client) LeaseAssignments(ctx context.Context, capacity int) ([]Assignment, error) {
+	var resp struct {
+		Assignments []Assignment `json:"assignments"`
+	}
+	err := c.do(ctx, http.MethodPost, "/api/v1/assignments/lease",
+		map[string]int{"capacity": capacity}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Assignments, nil
+}
+
+func (c *Client) UploadObservations(ctx context.Context, batchID string, obs []observation.Observation) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/observations", map[string]any{
+		"batch_id": batchID, "observations": obs,
+	}, nil)
 }
 
 // DownloadArtifact streams the current artifact to a temp file in dir.

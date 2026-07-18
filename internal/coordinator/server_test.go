@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -68,9 +69,23 @@ func setup(t *testing.T, devToken string) *env {
 		t.Fatal(err)
 	}
 	version := "20260718T0000Z-1"
-	blob := []byte("pretend-sqlite-artifact")
-	blobPath := filepath.Join(t.TempDir(), "blob")
-	if err := os.WriteFile(blobPath, blob, 0o644); err != nil {
+	// A minimal but real SQLite artifact: the executor opens it to validate
+	// probe targets against the snapshot.
+	blobPath := filepath.Join(t.TempDir(), "routing.sqlite")
+	adb, err := sql.Open("sqlite", blobPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adb.Exec(`create table meta (key text primary key, value text);
+		create table targets (address text primary key, provider_id text, prefix text);
+		insert into meta values ('version', '` + version + `')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := adb.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(blobPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 	sum, size, err := artifact.HashFile(blobPath)

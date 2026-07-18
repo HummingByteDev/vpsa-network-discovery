@@ -15,6 +15,7 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/artifact"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/config"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/platform/logging"
+	"github.com/HummingByteDev/vpsa-network-discovery/internal/probe"
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/worker"
 )
 
@@ -50,6 +51,9 @@ func main() {
 		log.Error("agent init failed", "error", err)
 		os.Exit(1)
 	}
+	agent.SetExecutor(worker.NewExecutor(
+		agent.Client(), probe.NewRegistry(probe.ICMP{}),
+		agent.Client().Key, agent.StateHandle(), log))
 
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		if err := agent.Doctor(ctx); err != nil {

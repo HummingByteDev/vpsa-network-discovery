@@ -26,6 +26,9 @@ type Agent struct {
 	state  State
 	client *Client
 	log    *slog.Logger
+
+	executor     *Executor
+	executorStop context.CancelFunc
 }
 
 func NewAgent(cfg AgentConfig, log *slog.Logger) (*Agent, error) {
@@ -123,7 +126,24 @@ func (a *Agent) tick(ctx context.Context) {
 			a.log.Error("snapshot sync failed", "error", err)
 		}
 	}
+	// With a verified snapshot in place, start measuring (Phase 5+).
+	if a.executor != nil && a.executorStop == nil && a.state.SnapshotVersion() != "" {
+		execCtx, cancel := context.WithCancel(ctx)
+		a.executorStop = cancel
+		go a.executor.Run(execCtx)
+		a.log.Info("probe executor started")
+	}
 }
+
+// SetExecutor arms the measurement executor; it starts once the worker is
+// active and a verified snapshot is installed.
+func (a *Agent) SetExecutor(e *Executor) { a.executor = e }
+
+// Client exposes the signed coordinator client for executor construction.
+func (a *Agent) Client() *Client { return a.client }
+
+// StateHandle exposes the persistent state directory helper.
+func (a *Agent) StateHandle() State { return a.state }
 
 // SyncSnapshot downloads the advertised artifact, verifies it against the
 // signed manifest and the pinned public key, and atomically installs it.

@@ -108,6 +108,9 @@ services:
   worker:
     build: { <<: *platform-build, args: { COMPONENT: worker } }
     deploy: { replicas: 3 }
+    cap_add: [NET_RAW]                  # raw-socket ICMP fallback
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"   # unprivileged datagram ICMP
     environment:
       CNIP_COORDINATOR_URL: http://coordinator:8080
       CNIP_ENROLLMENT_TOKEN: dev-worker-token
