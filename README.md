@@ -24,10 +24,28 @@ phase and [docs/architecture/](docs/architecture/) for the design.
 Repository: `github.com/HummingByteDev/vpsa-network-discovery`
 (private until the [launch checklist](docs/operations/launch-checklist.md) passes).
 
+## Documentation
+
+**[docs/README.md](docs/README.md) is the documentation home** — a full site that
+teaches VAPN from first principles (no networking background assumed) and guides
+every audience from beginner to advanced operator:
+[Getting Started](docs/getting-started/README.md) ·
+[Core Concepts](docs/concepts/README.md) ·
+[Walkthroughs](docs/walkthroughs/end-to-end.md) ·
+[Architecture](docs/architecture/README.md) ·
+[Builder](docs/builder/README.md) ·
+[Workers](docs/worker/README.md) ·
+[VPS Advisor Integration](docs/integration/README.md) ·
+[API Reference](docs/api/README.md) ·
+[Operations](docs/operations/README.md) ·
+[Development](docs/development/README.md) ·
+[Reference](docs/reference/README.md) ·
+[Project Handbook](docs/handbook/README.md).
+
 ## Run a worker (community)
 
 ```sh
-curl -fsSL https://install.vpsadvisor.com | bash
+curl -fsSL https://raw.githubusercontent.com/HummingByteDev/vpsa-network-discovery/main/deploy/worker/install.sh | bash
 ```
 
 Then `vapn status` · `vapn pause` · `vapn update` · `vapn uninstall` —
@@ -48,10 +66,11 @@ rollback, kill switch, audit).
 
 ## Website team
 
-[The integration guide](docs/integration/vpsadvisor-integration-guide.md)
-is the complete contract: models, endpoints, dashboards, permissions, jobs,
-rollout order. The `mockadvisor` stub in this repo implements it, so the
-guide is executable.
+[The Django integration guide](docs/integration/django-integration.md)
+is the complete contract: models, migrations, endpoints, dashboards,
+permissions, jobs, rollout order. The `mockadvisor` stub in this repo
+implements it, so the guide is executable. Start at the
+[integration overview](docs/integration/README.md).
 
 ## Layout
 

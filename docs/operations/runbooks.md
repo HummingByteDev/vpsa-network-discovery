@@ -55,7 +55,7 @@ dropped.
 3. 5xx/timeouts → website-side incident; the queue drains itself once it
    recovers. Only act if growth threatens disk (it won't for days).
 4. Persistent 4xx → contract drift; compare payloads against
-   docs/integration/vpsadvisor-integration-guide.md §4.4 and escalate to the
+   docs/integration/django-integration.md §4.4 and escalate to the
    website team. 4xx rows retry forever — after resolution they drain
    automatically.
 

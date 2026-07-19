@@ -15,7 +15,7 @@ implementation guide.
   systems), and admin decisions (approve/suspend/quarantine/retire made on
   the website dashboard are applied idempotently).
 - **Integration Guide**:
-  [docs/integration/vpsadvisor-integration-guide.md](../integration/vpsadvisor-integration-guide.md)
+  [docs/integration/django-integration.md](../integration/django-integration.md)
   — models, endpoints with schemas, dashboard pages, permissions, jobs,
   notifications, rollout order. The mock stub implements this exact contract,
   so the guide is executable: implement it and integration is a config change.

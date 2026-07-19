@@ -10,7 +10,8 @@ checklist.
 Docker is an implementation detail; contributors get a stable UX:
 
 ```
-curl -fsSL https://install.vpsadvisor.com | bash     # deploy/worker/install.sh
+# deploy/worker/install.sh
+curl -fsSL https://raw.githubusercontent.com/HummingByteDev/vpsa-network-discovery/main/deploy/worker/install.sh | bash
 ```
 
 ```
