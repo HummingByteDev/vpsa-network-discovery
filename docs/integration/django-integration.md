@@ -41,17 +41,17 @@ Implement to this document and platform-side integration is just
 The website is the **source of truth and human surface**; the platform is the
 **measurement machine**. Four flows cross the boundary:
 
-| # | Flow | Direction | Cadence | Endpoints |
-|---|---|---|---|---|
-| 1 | Provider catalog | platform **pulls** | ~2 min | [§4.1](#41-provider-catalog-platform-pulls) |
-| 2 | Enrollment | platform **pulls** | ~2 min | [§4.2](#42-enrollment) |
-| 3 | Admin decisions | platform **pulls** | ~2 min | [§4.3](#43-admin-decisions) |
-| 4 | Results / anomalies / telemetry | platform **pushes** | ~15 s / ~5 min | [§4.4](#44-results-ingestion-platform-pushes) |
+| #   | Flow                            | Direction           | Cadence        | Endpoints                                    |
+| --- | ------------------------------- | ------------------- | -------------- | -------------------------------------------- |
+| 1   | Provider catalog                | platform **pulls**  | ~2 min         | [4.1](#41-provider-catalog-platform-pulls)   |
+| 2   | Enrollment                      | platform **pulls**  | ~2 min         | [4.2](#42-enrollment)                        |
+| 3   | Admin decisions                 | platform **pulls**  | ~2 min         | [4.3](#43-admin-decisions)                   |
+| 4   | Results / anomalies / telemetry | platform **pushes** | ~15 s / ~5 min | [4.4](#44-results-ingestion-platform-pushes) |
 
 Design rules to internalize:
 
-- **You never store measurements or run probes.** You store *inputs* (which
-  providers/ASNs to monitor) and *outputs* (verdicts to display).
+- **You never store measurements or run probes.** You store _inputs_ (which
+  providers/ASNs to monitor) and _outputs_ (verdicts to display).
 - **Every push endpoint must be idempotent** — the platform delivers
   at-least-once from an outbox with retries. A replayed push must be a no-op.
 - **Pulls are cheap and tolerant.** Returning the full list is always correct;
@@ -154,7 +154,7 @@ class MonitoringDecision(models.Model):
 class MonitoringProviderStatus(models.Model):
     provider   = models.OneToOneField("catalog.Provider", on_delete=models.CASCADE,
                                       primary_key=True, related_name="monitoring_status")
-    document   = models.JSONField()                # verbatim platform payload (§4.4)
+    document   = models.JSONField()                # verbatim platform payload (4.4)
     updated_at = models.DateTimeField(auto_now=True)
 
 class MonitoringAnomaly(models.Model):
@@ -234,12 +234,19 @@ urlpatterns = [
 - **Response 200:**
 
 ```json
-{ "providers": [ {
-    "provider_id": "7f9c...", "name": "ExampleHost",
-    "asns": [64500, 64501],
-    "monitoring_enabled": true, "priority": 10,
-    "updated_at": "2026-07-18T06:00:00Z" } ],
-  "next_cursor": null }
+{
+  "providers": [
+    {
+      "provider_id": "7f9c...",
+      "name": "ExampleHost",
+      "asns": [64500, 64501],
+      "monitoring_enabled": true,
+      "priority": 10,
+      "updated_at": "2026-07-18T06:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
 ```
 
 - **Semantics:** a provider **absent** from the enabled list is treated as
@@ -268,9 +275,7 @@ class ProviderList(APIView):
 sync (optional but recommended):
 
 ```json
-{ "asns": [ {"asn": 64500, "provider_id": "7f9c...",
-             "monitoring_enabled": true, "updated_at": "..."} ],
-  "next_cursor": null }
+{ "asns": [{ "asn": 64500, "provider_id": "7f9c...", "monitoring_enabled": true, "updated_at": "..." }], "next_cursor": null }
 ```
 
 ### 4.2 Enrollment
@@ -278,6 +283,7 @@ sync (optional but recommended):
 **Operator UI flow** (session auth + `monitoring.operator`):
 
 **`POST /api/v1/monitoring/workers`** — create a worker.
+
 - Generate a random **≥32-byte token**, show its plaintext **once**, store only
   `sha256`. Create `MonitoringWorker` (state `pending`) + `MonitoringEnrollment`.
 - **Response 201:** `{ "worker_id": "...", "enrollment_token": "<shown once>", "coordinator_url": "https://probe-api..." }`
@@ -294,11 +300,19 @@ in liveness from pushed telemetry/status).
 `registered_at` and not expired:
 
 ```json
-{ "enrollments": [ {
-    "enrollment_id": "en-123", "worker_id": "9f30...",
-    "worker_name": "helsinki-1", "operator_id": "user-uuid",
-    "token_hash": "hex sha256", "expires_at": "2026-07-19T08:00:00Z" } ],
-  "next_cursor": null }
+{
+  "enrollments": [
+    {
+      "enrollment_id": "en-123",
+      "worker_id": "9f30...",
+      "worker_name": "helsinki-1",
+      "operator_id": "user-uuid",
+      "token_hash": "hex sha256",
+      "expires_at": "2026-07-19T08:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
 ```
 
 **`POST /api/v1/monitoring/enrollments/{id}/registered`** — the platform has
@@ -316,11 +330,18 @@ Admin UI actions (approve / suspend / quarantine / retire, each with a
 - **Response 200:**
 
 ```json
-{ "decisions": [ {
-    "decision_id": "d-1", "worker_id": "9f30...",
-    "state": "active", "reason": "verified operator",
-    "decided_at": "2026-07-18T09:00:00Z" } ],
-  "next_cursor": null }
+{
+  "decisions": [
+    {
+      "decision_id": "d-1",
+      "worker_id": "9f30...",
+      "state": "active",
+      "reason": "verified operator",
+      "decided_at": "2026-07-18T09:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
 ```
 
 - The platform applies decisions **idempotently** (replays/no-ops safe) within
@@ -332,7 +353,7 @@ Admin UI actions (approve / suspend / quarantine / retire, each with a
 
 > **Optional webhook:** POST the same decision object to the platform to cut
 > latency. Polling stays the fallback, so the webhook is a pure optimization —
-> you never *depend* on it.
+> you never _depend_ on it.
 
 ### 4.4 Results ingestion (platform pushes)
 
@@ -343,15 +364,11 @@ backoff — transient `5xx` is harmless, persistent failure backs up the queue.
 status:
 
 ```json
-{ "provider_id": "7f9c...", "as_of": "2026-07-18T08:05:00Z",
-  "global": { "verdict": "healthy", "confidence": 0.97,
-    "metrics": { "loss_rate": 0.001, "rtt_p50_ms": 21.4, "rtt_p95_ms": 38.2,
-                 "worker_count": 14, "dissent_ratio": 0.02 } },
-  "regions": [ { "region": "eu-west", "verdict": "healthy", "confidence": 0.99 } ] }
+{ "provider_id": "7f9c...", "as_of": "2026-07-18T08:05:00Z", "global": { "verdict": "healthy", "confidence": 0.97, "metrics": { "loss_rate": 0.001, "rtt_p50_ms": 21.4, "rtt_p95_ms": 38.2, "worker_count": 14, "dissent_ratio": 0.02 } }, "regions": [{ "region": "eu-west", "verdict": "healthy", "confidence": 0.99 }] }
 ```
 
 - **Verdicts:** `healthy | degraded | outage | insufficient_data`.
-- **Display guidance (important):** these are *public-network reachability*
+- **Display guidance (important):** these are _public-network reachability_
   signals, **not SLA claims**. Always render `insufficient_data` as "not enough
   data," never as an outage. Show confidence. **Accept and store unknown
   fields** (regional breakdowns and future metrics arrive here).
@@ -368,10 +385,7 @@ charts (optional at launch; accept-and-store, payloads up to ~1 MB).
 **`POST /api/v1/monitoring/telemetry/fleet`** — admin-dashboard summary:
 
 ```json
-{ "as_of": "...", "workers_by_state": {"active": 41, "pending": 3},
-  "software_versions": {"1.2.0": 39, "1.1.2": 2},
-  "published_snapshot": "20260718T0800Z-1",
-  "security_events_24h": {"replay": 0, "bad_signature": 2} }
+{ "as_of": "...", "workers_by_state": { "active": 41, "pending": 3 }, "software_versions": { "1.2.0": 39, "1.1.2": 2 }, "published_snapshot": "20260718T0800Z-1", "security_events_24h": { "replay": 0, "bad_signature": 2 } }
 ```
 
 ```python
@@ -388,11 +402,11 @@ class ResultUpsert(APIView):
 
 Three new permissions (map to your groups/roles):
 
-| Permission | Grants | Typical holder |
-|---|---|---|
-| `monitoring.operator` | create/manage own workers | any eligible registered user (your policy) |
-| `monitoring.provider` | the `monitoring_enabled` opt-out toggle | existing provider-claim role |
-| `monitoring.admin` | approval queue, decisions, fleet dashboard | staff |
+| Permission            | Grants                                     | Typical holder                             |
+| --------------------- | ------------------------------------------ | ------------------------------------------ |
+| `monitoring.operator` | create/manage own workers                  | any eligible registered user (your policy) |
+| `monitoring.provider` | the `monitoring_enabled` opt-out toggle    | existing provider-claim role               |
+| `monitoring.admin`    | approval queue, decisions, fleet dashboard | staff                                      |
 
 ```python
 class HasMonitoringAdmin(BasePermission):
@@ -423,7 +437,7 @@ def prune_monitoring_history():
 
 @shared_task
 def notify_worker_state_change(worker_id, new_state, reason):
-    """Fired from the decision signal (§7) — email/notify the operator."""
+    """Fired from the decision signal (7) — email/notify the operator."""
     ...
 ```
 
@@ -438,7 +452,7 @@ CELERY_BEAT_SCHEDULE = {
 }
 ```
 
-> **You do not need a task to *push* to the platform** — the platform pulls the
+> **You do not need a task to _push_ to the platform** — the platform pulls the
 > catalog/enrollments/decisions itself. Your jobs are just housekeeping and
 > notifications.
 
@@ -511,14 +525,14 @@ class WorkerAdmin(admin.ModelAdmin):
 
 ### Dashboard pages to add
 
-| Audience | Page | Contents |
-|---|---|---|
-| **Operator** ("My Workers") | worker list | state/liveness, **create worker + one-time token (copy-once UX)**, regenerate token, retire own worker (writes a decision) |
-| **Provider manager** | monitoring toggle | `monitoring_enabled` opt-out (copy: "takes effect within minutes, no commitment") + their status card |
-| **Admin** | approval queue | pending workers with operator context; **decision actions with required reason** |
-| **Admin** | fleet overview | from `MonitoringFleetTelemetry`: counts by state/version, snapshot in force, security events |
-| **Admin** | worker detail | state history (from decisions), trust/security surfaced via telemetry, anomaly feed, audit trail |
-| **Public** | Network Health section | rendered from `MonitoringProviderStatus` + recent anomalies, with the [display guidance](#44-results-ingestion-platform-pushes) |
+| Audience                    | Page                   | Contents                                                                                                                        |
+| --------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Operator** ("My Workers") | worker list            | state/liveness, **create worker + one-time token (copy-once UX)**, regenerate token, retire own worker (writes a decision)      |
+| **Provider manager**        | monitoring toggle      | `monitoring_enabled` opt-out (copy: "takes effect within minutes, no commitment") + their status card                           |
+| **Admin**                   | approval queue         | pending workers with operator context; **decision actions with required reason**                                                |
+| **Admin**                   | fleet overview         | from `MonitoringFleetTelemetry`: counts by state/version, snapshot in force, security events                                    |
+| **Admin**                   | worker detail          | state history (from decisions), trust/security surfaced via telemetry, anomaly feed, audit trail                                |
+| **Public**                  | Network Health section | rendered from `MonitoringProviderStatus` + recent anomalies, with the [display guidance](#44-results-ingestion-platform-pushes) |
 
 ## 10. Management commands
 
@@ -551,7 +565,7 @@ task), `monitoring_fleet` (print the latest telemetry), `monitoring_check`
 - **Rate-limit** operator worker-creation to blunt token farming.
 - **Require a reason on every decision** (audit trail) and keep decisions
   append-only.
-- **Enforce ASN uniqueness at the DB layer** ([§3](#3-database-models--migrations)).
+- **Enforce ASN uniqueness at the DB layer** ([3](#3-database-models--migrations)).
 - **Alert on `4xx` from the platform credential** — it signals contract drift.
 - **Validate result payloads loosely but store verbatim** — accept unknown
   fields (forward compatibility), but sanity-check `verdict`/`kind` enums before
@@ -567,7 +581,7 @@ Cross-reference the platform's [security model](../architecture/05-security-trus
   idempotency (replay a push → no dupes), and pagination.
 - **Idempotency tests:** `PUT results` twice → one row; `POST anomalies` with
   same `(provider, kind, opened_at)` twice → one row; `POST enrollments/{id}/
-  registered` twice → `204` both times, one state change.
+registered` twice → `204` both times, one state change.
 - **Pagination tests:** more than one page → `next_cursor` set, following it
   returns the rest, no overlaps/gaps.
 - **Permission tests:** operator can't hit admin decisions; provider role can
@@ -590,12 +604,12 @@ def test_results_upsert_is_idempotent(client, provider, platform_token):
 
 Ship incrementally — each step is independently useful and de-risks the next:
 
-1. **Models + §4.1 (catalog).** The platform can now run against production data
+1. **Models + 4.1 (catalog).** The platform can now run against production data
    **read-only** — it learns which providers/ASNs to monitor and starts building
    snapshots. No public change yet.
-2. **§4.4 (results).** Store and render Network Health → public status goes live.
-3. **§4.2 + §4.3 (enrollment + decisions).** Community workers onboard through
-   the website. *Until this ships,* workers are enrolled via the platform admin
+2. **4.4 (results).** Store and render Network Health → public status goes live.
+3. **4.2 + 4.3 (enrollment + decisions).** Community workers onboard through
+   the website. _Until this ships,_ workers are enrolled via the platform admin
    API (`vapnctl workers create`), so you're never blocked.
 4. **Staging + service credential.** Provide a staging environment and token;
    the platform runs its contract tests against it (same suite as CI).
