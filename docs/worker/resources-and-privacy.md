@@ -32,7 +32,8 @@ container that spends almost all its time asleep between probes.
 
 - `vapn pause` stops all probing instantly (and returns your assignments to the
   fleet) — use it when you need your bandwidth.
-- The platform caps assignments per worker (`MAX_ASSIGNMENTS_PER_WORKER`) and
+- The platform caps assignments per worker
+  ([`VAPN_MAX_ASSIGNMENTS_PER_WORKER`](../reference/configuration.md#coordinator)) and
   enforces per-target and per-worker rate limits via **probe policy**, so a
   worker can't be handed an abusive amount of work.
 
@@ -97,4 +98,4 @@ Running a worker costs you a few MB of RAM and a trickle of outbound bandwidth,
 opens no ports, and lets a sandboxed container send pings to a fixed, signed
 list of provider addresses — nothing more. Your private key and your machine's
 contents stay yours. You can pause or remove it at any moment. If that trade
-sounds fair, [run one](../getting-started/quickstart.md) — and thank you.
+sounds fair, [run one](installation.md) — and thank you.

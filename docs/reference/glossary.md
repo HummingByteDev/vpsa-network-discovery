@@ -125,7 +125,7 @@ observations, and the builder uses to sign artifacts. →
 
 **enrollment token** — a one-time secret proving a real operator started a
 worker; traded for a permanent identity on first boot. →
-[Worker installation](../walkthroughs/worker-installation.md)
+[Install a worker](../worker/installation.md#what-vapn-install-actually-does)
 
 **heartbeat** — the ~30 s worker→coordinator call carrying liveness/version and
 returning config, leases, snapshot version, and control actions. →
@@ -165,7 +165,7 @@ captured requests from being reused. →
 
 **routing snapshot** — an immutable, versioned record of prefix ownership at
 build time; the source of the worker artifact. →
-[Snapshot publishing](../walkthroughs/snapshot-publishing.md)
+[Builder](../builder/README.md#one-build-stage-by-stage)
 
 **sanity gate** — the builder's hold-for-approval check when a snapshot's prefix
 count swings past a threshold (route-leak protection). →

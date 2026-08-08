@@ -31,12 +31,18 @@ flowchart TD
 
 | Walkthrough | Zooms into | Audience |
 |---|---|---|
-| [Worker installation](worker-installation.md) | What actually happens from `install.sh` to a probing worker | Contributors, operators |
-| [Snapshot publishing](snapshot-publishing.md) | The builder run: RIPE → PostgreSQL → signed artifact → published | Operators |
 | [Worker authentication](worker-authentication.md) | Enrollment, keypairs, request signing, replay protection, rotation | Developers, security reviewers |
 | [Measurement lifecycle](measurement-lifecycle.md) | Heartbeat → lease → probe → sign → upload → persist | Developers |
 | [Trust calculation](trust-calculation.md) | How a worker's score is computed, window by window, with numbers | Developers, operators |
-| [Software updates](software-updates.md) | Health-gated worker updates and min-version enforcement | Contributors, operators |
+
+Three stages of the end-to-end flow are documented where they are *used* rather
+than as separate walkthroughs:
+
+| Stage | Where it lives |
+|---|---|
+| The builder run: RIPE → PostgreSQL → signed artifact → published | [How the builder works](../builder/README.md#one-build-stage-by-stage) |
+| From `install.sh` to a probing worker | [Install a worker → what it actually does](../worker/installation.md#what-vapn-install-actually-does) |
+| Health-gated worker updates and min-version enforcement | [Operating a worker → updating](../worker/operations.md#updating) |
 
 Each is self-contained but assumes the concepts. If a term is unfamiliar, the
 [Glossary](../reference/glossary.md) has it.

@@ -16,7 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        component: [coordinator, aggregator, builder, migrate, worker, mockadvisor]
+        # keygen is included so operators can generate a snapshot signing
+        # keypair with `docker run --rm ghcr.io/.../vapn-keygen` instead of
+        # building it locally (docs/builder/installation.md step 3).
+        component: [coordinator, aggregator, builder, migrate, worker, mockadvisor, keygen]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

@@ -32,7 +32,7 @@ stateDiagram-v2
 
 ## pending
 
-Where every worker starts, right after [enrollment](../walkthroughs/worker-installation.md).
+Where every worker starts, right after [enrollment](installation.md#what-vapn-install-actually-does).
 It can heartbeat (so the platform knows it's alive) but receives no work and
 counts for nothing until a **human admin approves it**. This manual gate is a
 deliberate anti-abuse step — it's the main thing stopping someone from flooding
@@ -116,6 +116,6 @@ Note that **pausing is not suspension**: pause is your local choice and
 preserves everything; suspension is an admin lockout. Choose `pause` for
 temporary breaks.
 
-Related: [command reference](command-reference.md) ·
+Related: [operating a worker](operations.md) ·
 [trust calculation](../walkthroughs/trust-calculation.md) ·
 [security & trust model](../architecture/05-security-trust-model.md).

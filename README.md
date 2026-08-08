@@ -29,7 +29,6 @@ Repository: `github.com/HummingByteDev/vpsa-network-discovery`
 **[docs/README.md](docs/README.md) is the documentation home** — a full site that
 teaches VAPN from first principles (no networking background assumed) and guides
 every audience from beginner to advanced operator:
-[Getting Started](docs/getting-started/README.md) ·
 [Core Concepts](docs/concepts/README.md) ·
 [Walkthroughs](docs/walkthroughs/end-to-end.md) ·
 [Architecture](docs/architecture/README.md) ·
@@ -48,19 +47,23 @@ every audience from beginner to advanced operator:
 curl -fsSL https://raw.githubusercontent.com/HummingByteDev/vpsa-network-discovery/main/deploy/worker/install.sh | bash
 ```
 
-Then `vapn status` · `vapn pause` · `vapn update` · `vapn uninstall` —
-Docker stays an implementation detail. Details: [docs/worker/](docs/worker/README.md).
+You'll need an enrollment token and the platform's snapshot public key. Then
+`vapn status` · `vapn pause` · `vapn update` · `vapn uninstall` — Docker stays
+an implementation detail. Full guide:
+[install a worker](docs/worker/installation.md).
 
 ## Run the platform (operators)
 
-Single Ubuntu VM + Docker Compose + Caddy is the supported v1 deployment:
-[deployment guide](docs/operations/deployment.md). Day-2 operations:
+Single Ubuntu VM + Docker Compose + Caddy is the supported v1 deployment.
+**[Install the builder](docs/builder/installation.md)** is the step-by-step
+guide from a fresh VPS to a published signed routing snapshot — it brings up
+the whole stack. Reference material:
+[deployment topology](docs/operations/deployment.md) ·
 [monitoring](docs/operations/monitoring.md) ·
 [runbooks](docs/operations/runbooks.md) ·
 [backup & DR](docs/operations/backup-restore.md) ·
-[upgrades](docs/operations/upgrades.md) ·
-[security](docs/operations/security-hardening.md) ·
-[releases](docs/operations/release-management.md).
+[releases & upgrades](docs/operations/releases-and-upgrades.md) ·
+[security](docs/operations/security.md).
 Administration: `vapnctl` (fleet status, worker lifecycle, snapshot
 rollback, kill switch, audit).
 

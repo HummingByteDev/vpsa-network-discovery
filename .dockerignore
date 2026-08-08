@@ -1,0 +1,36 @@
+# Build context trimming. The Dockerfile copies only go.mod, go.sum, cmd/,
+# internal/ and migrations/ — everything else is dead weight uploaded to the
+# daemon on every build (both compose files use the repo root as context).
+#
+# Keep this in sync with the COPY lines in ./Dockerfile.
+
+# Pre-downloaded RIS bview + GeoLite2 dev fixtures — hundreds of MB, and
+# gitignored, so a fresh clone never has them anyway.
+data/
+
+# Local build output.
+bin/
+
+# Version control and CI.
+.git/
+.github/
+.gitignore
+
+# Documentation and project prose.
+docs/
+*.md
+
+# Deployment manifests: read by docker compose from the host, never needed
+# inside an image build.
+deploy/
+
+# Secrets must never enter a build context.
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise.
+.vscode/
+.idea/
+.DS_Store
+*.swp

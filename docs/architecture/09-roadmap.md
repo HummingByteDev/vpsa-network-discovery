@@ -22,7 +22,7 @@ produces a published snapshot in Postgres with plausible counts for a fixture AS
 ## Phase 3 — Snapshot Distribution
 **Deliver:** SQLite artifact export; signed manifest; upload to artifact store; `current`
 pointer + rollback; retention pruning; builder GeoLite2 auto-refresh from MaxMind
-(deployer's own license key per R8 decision — no redistribution).
+(platform operator's own licence key per R8 decision — no redistribution).
 **Test gate:** artifact downloads, signature verifies, tamper test fails closed;
 publish→supersede→rollback exercised.
 

@@ -24,7 +24,7 @@ running over HTTPS. Two independent guarantees:
 At first boot the worker generates an **Ed25519 keypair** (a modern, fast,
 32-byte public-key signature scheme). The **private key never leaves** the
 worker's volume. The **public key** is registered with the coordinator during
-[enrollment](worker-installation.md). From then on the worker signs; the
+[enrollment](../worker/installation.md#what-vapn-install-actually-does). From then on the worker signs; the
 coordinator verifies with the stored public key.
 
 ## Every request is signed
@@ -116,6 +116,6 @@ all of a worker's keys cuts it off instantly, paired with a state transition to
 | Compromise is recoverable | Rotation (overlap) + instant revocation + state transition |
 | Attacks are visible and penalized | Failures recorded as trust events, surfaced in audit + telemetry |
 
-Related: [enrollment](worker-installation.md) ·
+Related: [enrollment](../worker/installation.md#what-vapn-install-actually-does) ·
 [trust calculation](trust-calculation.md) ·
 [Security & trust model](../architecture/05-security-trust-model.md).

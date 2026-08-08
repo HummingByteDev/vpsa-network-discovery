@@ -1,162 +1,885 @@
-# Builder Installation (Simplified)
+# Install the Builder
 
-A step-by-step guide to running the routing builder, written for someone
-comfortable following commands but **not** assumed to be a Linux or networking
-expert. If a term is unfamiliar, the [builder overview](README.md) and
-[Glossary](../reference/glossary.md) explain it.
+This guide takes you from a **freshly installed VPS** to a **running builder
+that has published its first signed routing snapshot**. Follow it top to
+bottom; each step says what it does, what to type, and how to check it worked.
 
-> **Who needs this?** Only **platform operators** — the people running VAPN
-> itself. Community worker operators never run the builder;
-> [running a worker](../getting-started/quickstart.md) is a completely separate,
-> simpler task.
+You do **not** need to understand BGP, ASNs, RIPE, PostgreSQL, Docker, or
+cryptography to complete it. In one sentence, here is what you are installing:
 
-In production the builder runs as part of the platform's Docker Compose stack on
-a schedule — you usually don't invoke it by hand. This guide covers both the
-managed path (recommended) and a manual run for understanding and debugging.
+> The builder downloads a copy of the Internet's routing information, works out
+> which addresses belong to each VPS provider being monitored, signs that list
+> so nobody can tamper with it, and publishes it for community workers to use.
 
-## What you'll need
+If you want to know *how* it does that, read [How the builder
+works](README.md) — afterwards. Nothing in this guide requires it.
 
-| Requirement | Why | How to get it |
+> **Who needs this guide?** Only **platform operators** — the people running
+> VAPN itself. If you just want to contribute measurements from a spare
+> machine, you want [Install a worker](../worker/installation.md) instead. That
+> is a completely different, much shorter task.
+
+## What you are about to build
+
+The builder is not a server that runs continuously. It is a **scheduled job**:
+it wakes up, does one build, publishes the result, and exits. But it needs the
+rest of the platform to exist first — a database to write to, a place to put
+the finished file, and the list of providers to monitor. So this guide brings
+up the whole VAPN platform on one machine, then runs the builder on it.
+
+```
+your VPS
+├── PostgreSQL        stores the routing data
+├── coordinator       the service community workers talk to
+├── aggregator        combines worker measurements into verdicts
+├── Caddy             handles HTTPS for you
+└── builder           ← the scheduled job this guide is about
+```
+
+Time required: about 45 minutes, most of it waiting for the first build.
+
+---
+
+## Before you begin
+
+Collect these five things. You cannot finish without them, and gathering them
+now saves you a stalled install later.
+
+| You need | Why | Where to get it |
 |---|---|---|
-| The VAPN platform stack running | The builder writes to the platform's PostgreSQL and artifact store | [Deployment guide](../operations/deployment.md) |
-| A **MaxMind license key** | To download GeoLite2 for geolocation | Free account at maxmind.com → license key |
-| A **snapshot signing key** | To sign artifacts so workers can trust them | Generate with `keygen` (below) |
-| Access to **RIPE RIS** (outbound HTTPS) | To download the routing dump | Just outbound internet; no account needed |
-| The **VPS Advisor service token** | To fetch the monitored ASN list | From the website team |
+| **A Linux VPS** you can SSH into | Everything runs here | Ubuntu LTS, 4 vCPU / 8 GB RAM / 80 GB disk. Smaller works for a test, but a real build needs ~10 GB free disk and a few GB of RAM |
+| **A domain name** pointing at that VPS | Workers connect to it over HTTPS; certificates are issued automatically | Any registrar. Create an `A` record (and `AAAA` if you have IPv6) for e.g. `probes.example.com` → your VPS's IP |
+| **An S3-compatible storage bucket** + access keys | Where the finished snapshot file is published so workers can download it | Backblaze B2, Cloudflare R2, or AWS S3 all work. Create a private bucket and one key pair scoped to it |
+| **A MaxMind account** (free) | Adds country/city information to each address so verdicts can be regional | [maxmind.com](https://www.maxmind.com) → sign up → create a licence key. Note the **account ID** and the **licence key** |
+| **A VPS Advisor service token** | The builder asks VPS Advisor which providers to monitor. Without it there is nothing to build | From the VPS Advisor website team |
 
-## Step 1 — Generate a snapshot signing key
+You do **not** need a RIPE account. The routing data the builder downloads is
+public and free.
 
-Workers verify every snapshot against a **pinned public key**. You generate an
-Ed25519 keypair once; the builder holds the private half, and the public half is
-baked into the worker image.
+> **Don't have a VPS Advisor token yet?** You can still complete this guide
+> using the `mockadvisor` stub that ships in this repository — it serves the
+> same contract from fixtures. See
+> [Testing without VPS Advisor](#testing-without-vps-advisor) at the end.
+
+---
+
+## Step 1 — Prepare the VPS
+
+Connect to your machine:
 
 ```sh
-./bin/keygen
-# prints a base64 private key and its public key
+ssh your-user@probes.example.com
 ```
 
-Keep the **private key** secret (a password manager or secrets store — ideally
-injected per-run and kept offline-capable). Publish the **public key** to the
-worker image / pinned config. Losing the private key just means generating a new
-one and rotating; leaking it would let someone forge snapshots, so treat it like
-a signing certificate.
+> Replace `probes.example.com` with your domain (or the VPS's IP address if DNS
+> hasn't propagated yet).
 
-## Step 2 — Configure the builder
-
-The builder is configured entirely through `VAPN_`-prefixed environment
-variables (it prints its effective configuration at startup, with secrets
-redacted). The important ones:
-
-| Variable | Purpose | Example / default |
-|---|---|---|
-| `VAPN_DB_DSN` | PostgreSQL connection (builder role) | `postgres://vapn:…@postgres:5432/vapn` |
-| `VAPN_ADVISOR_URL` | VPS Advisor base URL | `https://vpsadvisor.example` |
-| `VAPN_ADVISOR_TOKEN` | Service credential for the ASN list | *(secret)* |
-| `VAPN_RIS_BVIEW_URL` | Where to download the RIS dump | `https://data.ris.ripe.net/rrc00/latest-bview.gz` |
-| `VAPN_RIS_BVIEW_PATH` | Local path/cache for the dump | `/work/latest-bview.gz` (dev: `data/ripe/latest-bview.gz`) |
-| `VAPN_RIS_BVIEW_MAX_AGE` | Reject dumps older than this | `6h` |
-| `VAPN_GEOIP_CITY_MMDB` | Path to GeoLite2-City | `/geoip/GeoLite2-City.mmdb` |
-| `VAPN_SNAPSHOT_SIGNING_KEY` | Base64 private signing key (Step 1) | *(secret)* |
-| `VAPN_MIN_WORKER_VERSION` | Oldest worker version allowed to use the snapshot | `0.1.0` |
-| `VAPN_MAX_TARGETS_PER_PROVIDER` | Cap on probe targets per provider | `100` |
-| `VAPN_SANITY_MAX_DELTA_PCT` | Hold for approval if prefix count swings more than this % | `50` |
-| `VAPN_SANITY_FORCE` | Bypass the sanity gate (use sparingly) | `false` |
-| `VAPN_RETAIN_SNAPSHOTS` | How many old snapshots to keep | `5` |
-| `VAPN_ARTIFACT_S3_*` | Artifact store (endpoint, bucket, keys) | see [deployment](../operations/deployment.md) |
-
-The full list with defaults is in the
-[configuration reference](../reference/configuration.md).
-
-## Step 3 — Run it
-
-### Managed (recommended): the production stack
-
-In the production Compose stack the builder is wired as a scheduled job via
-systemd timer units shipped in the repo:
-
-```
-deploy/prod/systemd/vapn-builder.service
-deploy/prod/systemd/vapn-builder.timer
-```
-
-Install and enable the timer (runs the builder daily):
+Install Docker, which is the only software the platform needs:
 
 ```sh
-sudo cp deploy/prod/systemd/vapn-builder.* /etc/systemd/system/
-sudo systemctl enable --now vapn-builder.timer
-systemctl list-timers vapn-builder.timer      # confirm next run
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER"
 ```
 
-The Compose file already mounts the GeoIP volume (kept fresh by the
-`geoipupdate` container) and passes the environment. See the
-[deployment guide](../operations/deployment.md) for the whole stack.
+> The first command installs Docker Engine and the Compose plugin. The second
+> lets your user run Docker without `sudo`.
 
-### Manual: one run, for understanding or debugging
+**Log out and back in** so the group change takes effect:
 
 ```sh
-# from a checkout, with the env vars above exported:
-make build
-./bin/builder
+exit
+ssh your-user@probes.example.com
 ```
 
-It will log each stage — sync, download, parse, filter, validate, enrich, load,
-target-derivation, sanity gate, export, publish — and exit. In development the
-defaults point at the pre-downloaded `data/ripe/` and `data/geo-data/`, so it
-runs fully offline.
-
-## Step 4 — Verify it worked
+Make sure the machine's clock is synchronised:
 
 ```sh
-# Are snapshots being published?
-./bin/vapnctl snapshots list
-# → shows versions, status (published/superseded/failed), counts, timestamps
+sudo timedatectl set-ntp true
 ```
 
-A healthy result: a recent snapshot with status **`published`**, a sensible
-prefix count, and a `built_at` within your cadence. You can also check that
-workers see it — `vapn status` on a worker shows the snapshot version it holds.
+> Workers sign every request with a timestamp, and the platform rejects
+> requests whose clock is more than two minutes off. A drifting clock on this
+> machine would lock out your entire worker fleet.
 
-## Updating the builder
+### Verify
 
-The builder is just a container image in the platform stack. Update it with the
-rest of the platform during a normal [platform upgrade](../operations/upgrades.md)
-(pull the new image tag, let the timer run the new version). There's no separate
-builder update ceremony — because it's a batch job, the next scheduled run
-simply uses the new image.
+```sh
+docker --version
+docker compose version
+docker info >/dev/null && echo "Docker is working"
+timedatectl | grep -i synchronized
+```
 
-## Monitoring
+**Healthy result:** a Docker version, a Compose version, `Docker is working`,
+and `System clock synchronized: yes`. If `docker info` fails with a permission
+error, you skipped the log-out/log-in.
 
-Watch these (details in [Operations → Monitoring](../operations/monitoring.md)):
+---
 
-| Signal | Healthy | Alert when |
+## Step 2 — Download the project
+
+```sh
+sudo mkdir -p /opt/vapn && sudo chown "$USER" /opt/vapn
+git clone https://github.com/HummingByteDev/vpsa-network-discovery /opt/vapn
+cd /opt/vapn/deploy/prod
+```
+
+> This downloads the project into `/opt/vapn` and moves you into the production
+> deployment directory, which holds the configuration files you will edit.
+
+**Use `/opt/vapn` exactly.** The scheduled-job definitions you install in
+[Step 8](#step-8--run-the-builder-automatically) expect that path.
+
+### Verify
+
+```sh
+ls
+```
+
+**Healthy result:** you see `docker-compose.yml`, `.env.example`, `Caddyfile`,
+`systemd/`, `scripts/`, and `monitoring/`. If `git` is missing, install it with
+`sudo apt install -y git` and retry the clone.
+
+---
+
+## Step 3 — Generate the snapshot signing key
+
+This is the most important step in the guide, so it gets its own explanation.
+
+### Why this key exists
+
+Workers download the address list the builder produces. That list tells them
+what to send network probes to. If someone could substitute their own list,
+they could point thousands of machines at a victim's network.
+
+To make that impossible, the builder **signs** every snapshot it publishes with
+a private key, and every worker **verifies** that signature before using the
+snapshot. A list that isn't signed by your key is refused — even if the
+attacker fully controls the storage bucket it came from.
+
+You are about to create that key pair. It has two halves:
+
+| Half | Variable | Who holds it | What it does |
+|---|---|---|---|
+| **Private key** | `VAPN_SNAPSHOT_SIGNING_KEY` | Only the builder, only on this VPS | Signs each snapshot. **Secret.** |
+| **Public key** | `VAPN_SNAPSHOT_PUBLIC_KEY` | Every worker operator | Verifies the signature. Safe to publish anywhere. |
+
+> ⚠️ **Protect the private key.**
+>
+> - **Never** commit it, paste it into a chat, or email it.
+> - **Never** put it on a worker. Workers only ever need the *public* key.
+> - Keep one copy in your team's password manager or secret store. It lives on
+>   this VPS in a file called `.env`, which you will lock down in Step 4.
+>
+> **If you lose the private key:** you cannot publish new snapshots. You must
+> generate a new key pair and get the new *public* key to every worker
+> operator, because their workers will refuse snapshots signed by an unknown
+> key. Workers keep running on their last good snapshot in the meantime, so
+> this is disruptive, not fatal.
+>
+> **If the private key leaks:** an attacker who can also write to your storage
+> bucket could feed workers a forged address list. Treat it as an incident:
+> generate a new key pair, roll out the new public key, rotate the storage
+> credentials, and review the bucket's access logs. The
+> [security guide](../operations/security.md#compromise-response) has the full
+> procedure.
+
+### Generate it
+
+```sh
+cd /opt/vapn
+docker build --build-arg COMPONENT=keygen -t vapn-keygen .
+docker run --rm vapn-keygen
+```
+
+> The first command builds a tiny throwaway image containing the key generator;
+> the second runs it. Nothing is stored — the key exists only in the output you
+> are about to copy.
+
+**You will see exactly two lines:**
+
+```
+VAPN_SNAPSHOT_SIGNING_KEY=XcOyiFle7/85M7gl5LKmLW/4pmphUfX/3Lcq/FuAF0I=
+VAPN_SNAPSHOT_PUBLIC_KEY=hJJgj1Wx9sQDf0SCo2JtlYUcFt/BtFoyGrQTubh7uxM=
+```
+
+**Copy both lines somewhere safe right now.** The command does not save them
+and running it again produces a *different* key pair.
+
+- The **first** line goes into your configuration in the next step.
+- The **second** line is what you give worker operators. They are prompted for
+  it when they run `vapn install`, so publish it wherever you tell people how
+  to join — a README, your website, the onboarding email.
+
+Go back to the deployment directory:
+
+```sh
+cd /opt/vapn/deploy/prod
+```
+
+### Verify
+
+Both lines end with `=` and are about 44 characters after the `=` sign. If you
+got an error instead, the most likely cause is Docker running out of disk while
+building — check with `df -h /`.
+
+---
+
+## Step 4 — Configure the builder
+
+Create your configuration file from the template:
+
+```sh
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+
+> `.env` is where every setting and secret lives. `chmod 600` makes it readable
+> only by you — important, because it now contains your signing key.
+
+Work through the file group by group. Everything below is required unless
+marked optional.
+
+### Group 1 — Where your platform lives
+
+| Setting | What it does | What to enter |
 |---|---|---|
-| **Snapshot age** | < 1× cadence | > 2× cadence (builds are failing or the timer isn't firing) |
-| **Snapshot status** | `published` | repeated `failed` |
-| **Prefix count** | stable-ish day to day | wild swings (may indicate a route leak — the sanity gate should catch these) |
-| **Builder run duration** | consistent | growing sharply (data-size or resource issue) |
+| `VAPN_DOMAIN` | The public address workers connect to. Caddy obtains an HTTPS certificate for it automatically | Your domain, e.g. `probes.example.com` |
+| `VAPN_ADMIN_ALLOW_CIDR` | Which IP addresses may reach the administration API | Your own IP with `/32`, e.g. `203.0.113.7/32`. Find it with `curl -s ifconfig.me` **from your laptop**, not the VPS |
 
-## Troubleshooting
+### Group 2 — Secrets
 
-| Symptom | Likely cause | Fix |
+Generate the two passwords with `openssl rand -hex 32` (run it twice; use a
+different value for each).
+
+| Setting | Secret? | What it does | What to enter |
+|---|---|---|---|
+| `VAPN_DB_PASSWORD` | 🔒 | Password for the platform's own database | Output of `openssl rand -hex 32` |
+| `VAPN_ADMIN_TOKEN` | 🔒 | Password for the administration API and the `vapnctl` tool | Output of `openssl rand -hex 32` |
+| `VAPN_SNAPSHOT_SIGNING_KEY` | 🔒🔒 | Signs every snapshot (Step 3) | The **first** line from `keygen` — private key only |
+
+### Group 3 — VPS Advisor
+
+The builder asks VPS Advisor which providers to monitor. Without this, a build
+has nothing to look for and fails.
+
+| Setting | Secret? | What it does | What to enter |
+|---|---|---|---|
+| `VAPN_ADVISOR_URL` | | Base address of the VPS Advisor site | e.g. `https://www.vpsadvisor.example` — **no trailing path**, the platform appends `/api/v1/monitoring/...` itself |
+| `VAPN_ADVISOR_TOKEN` | 🔒 | Proves the platform is allowed to read the provider list | The service token from the website team |
+
+### Group 4 — Where snapshots are published
+
+The finished snapshot is uploaded to an S3-compatible bucket. Workers download
+it from there. The bucket needs no special trust — the signature from Step 3 is
+what makes the file trustworthy — but keep it **private** and scope the keys to
+that one bucket.
+
+| Setting | Secret? | What it does | What to enter |
+|---|---|---|---|
+| `VAPN_ARTIFACT_S3_ENDPOINT` | | Your storage provider's address | Backblaze B2: `s3.us-west-004.backblazeb2.com` · Cloudflare R2: `<account-id>.r2.cloudflarestorage.com` · AWS: `s3.<region>.amazonaws.com`. Host only — no `https://` |
+| `VAPN_ARTIFACT_S3_BUCKET` | | Bucket name | Default `vapn-artifacts`, or your bucket's name |
+| `VAPN_ARTIFACT_S3_REGION` | | Region | AWS: your region. Cloudflare R2: `auto`. Backblaze B2: leave empty |
+| `VAPN_ARTIFACT_S3_ACCESS_KEY` | 🔒 | Storage username | From your storage provider |
+| `VAPN_ARTIFACT_S3_SECRET_KEY` | 🔒 | Storage password | From your storage provider |
+
+### Group 5 — Location data (MaxMind)
+
+| Setting | Secret? | What it does | What to enter |
+|---|---|---|---|
+| `MAXMIND_ACCOUNT_ID` | | Identifies your MaxMind account | Your account ID |
+| `MAXMIND_LICENSE_KEY` | 🔒 | Downloads the GeoLite2 databases | Your licence key |
+| `VAPN_GEOIP_DIR` | | Where the downloaded databases are stored | Leave as `./geoip` |
+
+MaxMind's licence does not allow redistributing these databases, which is why
+you bring your own key rather than the project shipping them.
+
+### Group 6 — Routing data source
+
+| Setting | What it does | What to enter |
 |---|---|---|
-| `RIS bview too old` | Download failed or cache stale | Check outbound HTTPS to `data.ris.ripe.net`; delete the cached file to force a fresh fetch |
-| Build **held for approval** | Prefix count swung past `SANITY_MAX_DELTA_PCT` | Investigate the swing (real routing change vs leak); approve, or set `SANITY_FORCE=true` only if you're sure |
-| `GeoIP … not found` | GeoLite2 not present or key missing | Confirm the `geoipupdate` container ran and the mount path matches `VAPN_GEOIP_CITY_MMDB` |
-| `configuration errors: VAPN_…` | A required variable is unset | The builder lists exactly which — set them |
-| Snapshot `failed` repeatedly | Any pipeline step erroring | Read the builder logs; the failing stage is named. Previous published snapshot stays in force meanwhile |
-| Signature/verify errors on workers | Signing key ≠ pinned public key | Ensure the worker image's pinned public key matches `VAPN_SNAPSHOT_SIGNING_KEY` |
+| `VAPN_RIS_BVIEW_URL` | Which public routing-data collector to download from | Leave the default, `https://data.ris.ripe.net/rrc00/latest-bview.gz`. Change it only if that collector is unavailable (see [troubleshooting](#the-routing-download-fails)) |
 
-## Recovery
+### Group 7 — Optional
 
-- **A bad snapshot got published.** Roll back instantly:
-  `./bin/vapnctl snapshots rollback <good-version>` (audited). Workers switch on
-  their next heartbeat.
-- **The builder can't run for a while.** No emergency — workers keep using the
-  last published snapshot indefinitely. Fix the cause and let the next run
-  publish. Routing membership changes slowly.
-- **Signing key compromised.** Generate a new key, update the worker image's
-  pinned public key (a worker release), and rotate. The old key's snapshots
-  remain verifiable until you retire them.
+| Setting | What it does | What to enter |
+|---|---|---|
+| `VAPN_VERSION` | Which release of VAPN to run | `latest`, or a specific tag such as `v1.2.0` once you are in production |
+| `VAPN_GRAFANA_PASSWORD` | Password for the optional dashboards | Any password, if you plan to enable monitoring |
 
-For the full design and rationale, return to the
-[builder overview](README.md).
+Save and close the file (in `nano`: `Ctrl+O`, `Enter`, `Ctrl+X`).
+
+> **There are more settings than these.** Everything above is what an ordinary
+> operator needs. Tuning knobs — how many probe targets per provider, how
+> aggressive the safety check is, how many old snapshots to keep — have
+> sensible defaults and are documented in the
+> [configuration reference](../reference/configuration.md#builder).
+
+### Verify
+
+```sh
+grep -c '^VAPN_\|^MAXMIND_' .env
+grep -E '^(VAPN_DB_PASSWORD|VAPN_ADMIN_TOKEN|VAPN_SNAPSHOT_SIGNING_KEY|VAPN_ADVISOR_TOKEN|VAPN_ARTIFACT_S3_SECRET_KEY)=$' .env
+```
+
+> The first command counts the settings you have. The second lists any required
+> secret you left **empty**.
+
+**Healthy result:** the second command prints nothing at all. Every line it
+prints is a secret you still need to fill in.
+
+---
+
+## Step 5 — Start the platform
+
+Bring up the database, the coordinator, the aggregator, and the HTTPS edge:
+
+```sh
+cd /opt/vapn/deploy/prod
+docker compose up -d
+```
+
+> This downloads the container images and starts the services. The first run
+> takes a few minutes. Database migrations run automatically before the
+> services start.
+
+Now download the location databases, which the builder needs:
+
+```sh
+docker compose --profile geoip up -d
+```
+
+> This starts a small updater that fetches the MaxMind GeoLite2 databases into
+> `./geoip` and refreshes them every three days.
+
+**Wait for the download to finish before continuing** — the first build fails
+if the database file isn't there yet:
+
+```sh
+docker compose logs geoipupdate
+ls -lh geoip/
+```
+
+### Verify
+
+```sh
+docker compose ps
+curl -sI "https://$(grep '^VAPN_DOMAIN=' .env | cut -d= -f2)/" | head -1
+ls geoip/GeoLite2-City.mmdb
+```
+
+**Healthy result:**
+
+- `docker compose ps` shows `caddy`, `postgres`, `coordinator`, and
+  `aggregator` running, with the coordinator and aggregator marked `healthy`.
+  The `migrate` service showing `exited (0)` is correct — it is a one-shot job.
+- The `curl` returns `HTTP/2 200`. If it fails, DNS may not have propagated
+  yet, or port 443 is blocked. Certificate issuance can take a minute.
+- `GeoLite2-City.mmdb` exists.
+
+**If a service is restarting:** `docker compose logs <service>` names the
+problem. A missing or invalid setting is reported as
+`bad configuration ... configuration errors: VAPN_...`, listing every variable
+at fault at once.
+
+---
+
+## Step 6 — Run the first build
+
+Now the actual builder. Run it once, by hand, so you can watch it work:
+
+```sh
+docker compose run --rm builder
+```
+
+> This runs a single build and exits. The `--rm` cleans up afterwards. There is
+> no long-running builder process — this is the whole thing.
+
+**This takes 10–40 minutes on the first run.** The routing snapshot it
+downloads is several gigabytes. Later runs reuse a cached copy if it is less
+than six hours old.
+
+You will see log lines for each stage:
+
+```
+provider sync complete       asns=…
+downloading RIS bview        url=https://data.ris.ripe.net/rrc00/latest-bview.gz
+bview downloaded             bytes=…
+extraction complete          rib_records=… matched=… prefix_rows=…
+geo enrichment complete      prefixes=… resolved=…
+snapshot loaded              version=20260808T0800Z-… prefixes=… targets=…
+artifact published           version=… sha256=… targets=…
+snapshot published           version=… elapsed=…
+```
+
+### Verify
+
+```sh
+echo "exit code: $?"
+```
+
+Run this **immediately** after the build finishes. The exit code tells you
+exactly what happened:
+
+| Exit code | Meaning | What to do |
+|---|---|---|
+| **0** | Snapshot built, signed, and published | Nothing — you are done with this step |
+| **2** | Snapshot **held for review**: the number of addresses changed far more than expected since the last build | Normal safety behaviour, but it cannot happen on a first build. See [the safety check held my build](#the-safety-check-held-my-build) |
+| **1** | The build failed | Read the last log line — it names the stage that failed. See [Troubleshooting](#step-10--troubleshooting) |
+
+---
+
+## Step 7 — Verify the snapshot
+
+Confirm the snapshot really was recorded, signed, and published.
+
+### Check the database
+
+```sh
+docker compose exec postgres psql -U vapn -d vapn -c \
+  "select version, status, prefix_count_v4, prefix_count_v6, published_at,
+          artifact_signature is not null as signed
+   from routing.snapshot order by id desc limit 5;"
+```
+
+> This asks the database for the most recent snapshots.
+
+**Healthy result:** one row with `status = published`, a recent `published_at`,
+prefix counts in the thousands (the exact number depends on how many providers
+you monitor), and `signed = t`.
+
+### Check the published file
+
+```sh
+docker compose exec postgres psql -U vapn -d vapn -c \
+  "select count(*) as probe_targets from routing.probe_target;"
+```
+
+**Healthy result:** a non-zero count. These are the addresses workers will
+probe.
+
+### Check it from an operator's point of view
+
+`vapnctl` is the platform administration tool.
+
+> ⚠️ **Install it on your own machine, not on the VPS.** The administration API
+> is restricted to the addresses you put in `VAPN_ADMIN_ALLOW_CIDR` back in
+> Step 4 — which was *your* IP, not the VPS's. Running `vapnctl` on the VPS
+> would be refused with a `403`. (If you would rather administer from the VPS,
+> see [the alternative](#administering-from-the-vps-instead) below.)
+
+**On your local machine**, download the tool for your architecture:
+
+```sh
+# Linux
+curl -fsSL -o vapnctl "https://github.com/HummingByteDev/vpsa-network-discovery/releases/latest/download/vapnctl-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+chmod +x vapnctl && sudo mv vapnctl /usr/local/bin/
+```
+
+> Releases ship `vapnctl-linux-amd64` and `vapnctl-linux-arm64`. The `sed`
+> translates `uname -m` output into the name used by the release. On macOS,
+> build it instead with `go build -o vapnctl ./cmd/vapnctl` from a clone.
+
+Point it at your platform. Copy the admin token off the VPS:
+
+```sh
+export VAPN_COORDINATOR_URL="https://probes.example.com"
+export VAPN_ADMIN_TOKEN="$(ssh your-user@probes.example.com \
+  "grep '^VAPN_ADMIN_TOKEN=' /opt/vapn/deploy/prod/.env | cut -d= -f2")"
+```
+
+> Substitute your own domain and SSH login. Add both lines to your shell
+> profile so they persist — the token is a secret, so treat that file
+> accordingly.
+
+```sh
+vapnctl snapshots list
+vapnctl status
+```
+
+**Healthy result:** `snapshots list` shows one snapshot with status
+`published`, sensible prefix counts, and `ROLLBACK? yes`. `status` shows the
+snapshot version, its target count, and `Scheduler: running`.
+
+**If you get a connection error or a `403`:** your current IP is not the one in
+`VAPN_ADMIN_ALLOW_CIDR`. Home IP addresses change. Check your current address
+with `curl -s ifconfig.me`, then update the value on the VPS and reload the
+edge:
+
+```sh
+ssh your-user@probes.example.com
+cd /opt/vapn/deploy/prod
+nano .env                       # set VAPN_ADMIN_ALLOW_CIDR to your current IP/32
+docker compose up -d caddy
+```
+
+#### Administering from the VPS instead
+
+If you would rather keep everything on one machine, allow the VPS's own public
+address as well. `VAPN_ADMIN_ALLOW_CIDR` accepts several space-separated CIDRs:
+
+```sh
+# on the VPS
+curl -s ifconfig.me                              # the VPS's public IP
+nano .env                                        # e.g. VAPN_ADMIN_ALLOW_CIDR=203.0.113.7/32 198.51.100.9/32
+docker compose up -d caddy
+```
+
+Then install `vapnctl` on the VPS with the same command as above. Note this
+only works if your host's network routes its own public address back to itself;
+if `vapnctl status` still fails, administer from your laptop instead.
+
+---
+
+## Step 8 — Run the builder automatically
+
+You have proved a build works. Now let the machine do it on a schedule.
+
+```sh
+sudo cp systemd/vapn-builder.service systemd/vapn-builder.timer /etc/systemd/system/
+sudo cp systemd/vapn-backup.service systemd/vapn-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now vapn-builder.timer vapn-backup.timer
+```
+
+> These install two scheduled jobs: the builder and a nightly database backup.
+> `enable --now` starts them immediately and makes them survive reboots.
+
+**The builder runs three times a day — at 00:30, 08:30, and 16:30 UTC**, with
+up to 10 minutes of random jitter. That matches the cadence at which fresh
+routing data is published (every 8 hours), 30 minutes behind it.
+
+The backup runs nightly at 03:15 UTC. See
+[Backup & restore](../operations/backup-restore.md) to send those backups
+offsite — a backup on the same disk as the database is not a backup.
+
+### Verify
+
+```sh
+systemctl list-timers 'vapn-*'
+```
+
+**Healthy result:** both timers listed with a `NEXT` time in the future and
+`ACTIVATES` naming the matching service.
+
+After the next scheduled run, confirm it succeeded:
+
+```sh
+systemctl status vapn-builder.service
+journalctl -u vapn-builder.service --since -1d
+```
+
+**Healthy result:** `Active: inactive (dead)` with
+`Main PID: … (code=exited, status=0/SUCCESS)`. For a one-shot job, "inactive"
+between runs is correct.
+
+---
+
+## Step 9 — Keep it up to date
+
+The builder is a container image, so updating it is part of updating the
+platform. There is no separate builder update procedure — the next scheduled
+run simply uses the new image.
+
+```sh
+cd /opt/vapn
+git pull
+cd deploy/prod
+sed -i 's/^VAPN_VERSION=.*/VAPN_VERSION=v1.3.0/' .env    # the release you want
+docker compose pull
+docker compose up -d
+```
+
+> `git pull` picks up changes to the compose and configuration files, the
+> `sed` line selects the release, and `docker compose pull && up -d` restarts
+> the services on it. Database migrations run automatically first.
+
+### Verify
+
+```sh
+docker compose ps        # on the VPS: all services healthy on the new version
+vapnctl status           # from your admin machine: the fleet is unaffected
+```
+
+> From here on, `docker compose` commands run **on the VPS** and `vapnctl`
+> commands run **wherever you installed it** in Step 7 — normally your own
+> machine.
+
+### Rolling back
+
+Two independent things can be rolled back, and it matters which one you mean.
+
+**Roll back the software** — set the previous version and restart:
+
+```sh
+sed -i 's/^VAPN_VERSION=.*/VAPN_VERSION=v1.2.0/' .env
+docker compose up -d
+```
+
+**Roll back the routing snapshot** — if a build published a bad address list:
+
+```sh
+vapnctl snapshots list
+vapnctl snapshots rollback 20260808T0800Z-1723118400000
+```
+
+> This re-publishes an earlier snapshot. Workers switch to it on their next
+> heartbeat, within about 30 seconds. The action is recorded in the audit log.
+
+By default the five most recent superseded snapshots stay available for
+rollback; older ones are pruned and `snapshots list` marks them `pruned`.
+
+Full procedures: [Releases & upgrades](../operations/releases-and-upgrades.md).
+
+---
+
+## Step 10 — Troubleshooting
+
+Every failure below leaves your **previously published snapshot fully in
+force**. Workers keep probing the addresses they already have, indefinitely.
+A failed build is never an outage — take your time.
+
+### Docker isn't available
+
+**What it usually means:** the daemon isn't running, or your user can't reach
+it.
+
+```sh
+docker info
+```
+
+**Healthy result:** a block of system information. `permission denied` means
+you need `sudo usermod -aG docker "$USER"` and a fresh login. `Cannot connect
+to the Docker daemon` means `sudo systemctl start docker`.
+
+### The repository won't clone
+
+**What it usually means:** `git` isn't installed, or the machine has no
+outbound HTTPS.
+
+```sh
+git --version
+curl -fsSI https://github.com | head -1
+```
+
+**Healthy result:** a git version and `HTTP/2 200`. Install git with
+`sudo apt install -y git`; a failing `curl` means your firewall is blocking
+outbound HTTPS, which the platform needs.
+
+### Configuration validation fails
+
+**What it usually means:** a required setting is empty or malformed. Services
+refuse to start rather than run half-configured, and they list **every**
+problem at once instead of stopping at the first.
+
+```sh
+docker compose logs builder | grep -A2 'bad configuration'
+```
+
+**Healthy result:** no output. Otherwise you will see
+`configuration errors: VAPN_ADVISOR_TOKEN, VAPN_SANITY_MAX_DELTA_PCT (not an
+integer: "fifty")` — fix each named variable in `.env` and re-run.
+
+### The database connection fails
+
+**What it usually means:** PostgreSQL isn't up yet, or `VAPN_DB_PASSWORD`
+changed without the database volume being recreated.
+
+```sh
+docker compose ps postgres
+docker compose exec postgres pg_isready -U vapn -d vapn
+```
+
+**Healthy result:** the service is `healthy` and `pg_isready` prints
+`accepting connections`. The builder waits up to 60 seconds for the database at
+startup, so a slow start is handled for you.
+
+### VPS Advisor authentication fails
+
+**What it usually means:** a wrong token, or a `VAPN_ADVISOR_URL` with an extra
+path on the end.
+
+```sh
+docker compose logs builder | grep -i advisor
+```
+
+**Healthy result:** `provider sync complete asns=N` with N greater than zero.
+`advisor returned 401` means the token is wrong or expired — ask the website
+team for a fresh one. `advisor returned 404` almost always means
+`VAPN_ADVISOR_URL` includes a path: it must be the bare site address, because
+the platform appends `/api/v1/monitoring/providers` itself.
+
+`ASN … claimed by two providers` is a data problem on the VPS Advisor side, not
+yours. The builder refuses to guess which provider owns an address range;
+report it to the website team.
+
+### The routing download fails
+
+**What it usually means:** the RIPE collector is temporarily unavailable, or
+outbound HTTPS is blocked.
+
+```sh
+curl -fsSI https://data.ris.ripe.net/rrc00/latest-bview.gz | head -1
+df -h /
+```
+
+**Healthy result:** `HTTP/2 200` and at least 10 GB free disk. If the collector
+is down, point at a different one — they are interchangeable:
+
+```sh
+sed -i 's|^VAPN_RIS_BVIEW_URL=.*|VAPN_RIS_BVIEW_URL=https://data.ris.ripe.net/rrc01/latest-bview.gz|' .env
+docker compose run --rm builder
+```
+
+A partial download never corrupts anything: the file is written to a temporary
+name and only moved into place once complete.
+
+### The location database is missing
+
+**What it usually means:** the MaxMind updater hasn't run, or your credentials
+are wrong. The build fails at `geo enrichment`.
+
+```sh
+ls -lh geoip/
+docker compose logs geoipupdate | tail -20
+```
+
+**Healthy result:** `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` exist and are
+tens of megabytes. If the updater reports an authentication error, re-check
+`MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY`, then
+`docker compose --profile geoip up -d --force-recreate`.
+
+### The safety check held my build
+
+**What it usually means:** the new snapshot's address count differs from the
+last published one by more than 50%. The builder refuses to publish it and
+exits with code **2**, leaving the previous snapshot in force. This is the
+protection against a routing leak or a truncated download quietly poisoning
+your fleet's target list.
+
+```sh
+vapnctl snapshots list
+```
+
+**Healthy result:** the previous snapshot is still `published`; the new one
+sits at `building`.
+
+**What to do next:** work out whether the swing is *real*. A large batch of
+providers being onboarded or removed genuinely changes the count. A RIPE outage
+or an advisor glitch does not. Once you are satisfied it is legitimate, run one
+build with the check bypassed:
+
+```sh
+VAPN_SANITY_FORCE=true docker compose run --rm builder
+```
+
+Do not put `VAPN_SANITY_FORCE=true` in `.env` — that disables the protection
+permanently.
+
+### Publishing to storage fails
+
+**What it usually means:** wrong endpoint, wrong credentials, or a bucket the
+keys can't write to. The builder verifies that it can read back exactly what it
+uploaded before marking a snapshot published, so a half-uploaded snapshot never
+becomes live.
+
+```sh
+docker compose logs builder | grep -iE 'artifact|upload|readback'
+```
+
+**Healthy result:** `artifact published version=… sha256=… targets=…`. Errors
+naming `upload artifact` or `readback verification` point at
+`VAPN_ARTIFACT_S3_*` — check the endpoint has no `https://` prefix, that the
+bucket exists, and that the key pair has write access to it.
+
+### Workers reject the snapshot's signature
+
+**What it usually means:** the public key a worker was given doesn't match the
+private key this builder signs with.
+
+On the builder, the public key is printed at the start of every run:
+
+```sh
+docker compose logs builder | grep 'artifact publication enabled'
+```
+
+**Healthy result:** `public_key=hJJgj1Wx9sQ…`. Compare it to the value the
+worker operator entered — `vapn install` prompts for it and stores it in
+`~/.vapn/config.env` as `VAPN_SNAPSHOT_PUBLIC_KEY`. If they differ, the worker
+has the wrong key: give them the correct one and have them re-run
+`vapn install`.
+
+### The scheduled build isn't running
+
+**What it usually means:** the timer wasn't enabled, or the units were copied
+from a checkout that isn't at `/opt/vapn`.
+
+```sh
+systemctl list-timers 'vapn-*'
+systemctl status vapn-builder.timer
+```
+
+**Healthy result:** the timer is `active (waiting)` with a future `NEXT` time.
+If it is missing, repeat [Step 8](#step-8--run-the-builder-automatically). If
+the service fails instantly with a path error, check that
+`WorkingDirectory=/opt/vapn/deploy/prod` in
+`/etc/systemd/system/vapn-builder.service` matches where you actually cloned
+the project.
+
+### Nothing above matches
+
+Read the last error line in the build log — it names the stage that failed:
+
+```sh
+docker compose logs --tail 50 builder
+```
+
+Then see the platform [runbooks](../operations/runbooks.md#snapshot-build-failure),
+which cover the same failures from an on-call perspective.
+
+---
+
+## What happens from here
+
+- **The builder runs three times a day** and publishes a fresh snapshot each
+  time. Provider address ranges change slowly, so a missed build costs you
+  freshness, not availability.
+- **Workers pick it up automatically.** Each worker is told the current version
+  on its heartbeat, downloads the file, verifies the signature and checksum
+  against the public key you gave them, and swaps it in. They never accept an
+  older version than the one they hold.
+- **You monitor one number.** Snapshot age. If the newest published snapshot is
+  more than ~18 hours old, builds are failing or the timer isn't firing. The
+  optional monitoring stack alerts on exactly that — see
+  [Monitoring](../operations/monitoring.md).
+- **Nothing about this is urgent.** Every failure mode leaves the last good
+  snapshot in force.
+
+### Testing without VPS Advisor
+
+If the website integration isn't ready, run the stub that ships with the
+project instead. From the repository root, use the development stack:
+
+```sh
+cd /opt/vapn
+make dev-up          # postgres, minio, mockadvisor, coordinator, aggregator, workers
+make build && ./bin/keygen     # requires Go; export both printed variables
+docker compose -f deploy/compose/dev.compose.yaml --profile build run --rm builder
+```
+
+This runs the full build pipeline offline against pre-downloaded routing and
+location data in `data/`, with a fixture-backed VPS Advisor. It is the same
+code path, so it is a genuine rehearsal. Details:
+[Development](../development/README.md).
+
+### Where to go next
+
+| If you want to… | Read |
+|---|---|
+| Understand what the builder actually does | [How the builder works](README.md) |
+| Enrol your first community workers | [Deployment → First workers](../operations/deployment.md#first-workers) |
+| See every setting, default, and accepted value | [Configuration reference](../reference/configuration.md) |
+| Set up alerting and dashboards | [Monitoring](../operations/monitoring.md) |
+| Handle an incident | [Runbooks](../operations/runbooks.md) |
+| Protect the host and the secrets | [Security](../operations/security.md) |

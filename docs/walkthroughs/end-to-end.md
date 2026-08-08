@@ -54,7 +54,7 @@ prefixes and no probe targets for it until the next builder run includes it.
 
 ## Stage 3 — The builder downloads RIPE routing data
 
-On its schedule (daily), the **[Routing Builder](../builder/README.md)** runs:
+On its schedule (three times a day), the **[Routing Builder](../builder/README.md)** runs:
 
 1. It asks VPS Advisor for the current list of monitored ASNs — `AS64500` is now
    on it.
@@ -87,7 +87,7 @@ builder then:
   Ed25519 signature, minimum worker version).
 
 > **Concept:** [Prefix ownership](../concepts/prefix-ownership.md). **Deeper:**
-> [Snapshot publishing walkthrough](snapshot-publishing.md).
+> [How the builder works](../builder/README.md#one-build-stage-by-stage).
 
 ## Stage 5 — The snapshot is published
 
@@ -96,8 +96,8 @@ S3-compatible bucket, CDN-frontable), verifies the readback, marks the new
 snapshot `published`, and marks the previous one `superseded`. Publication is
 **atomic from the workers' view**: until this moment they keep using the old
 snapshot; the instant it completes, the new version is the current one. If any
-step failed, the snapshot is marked `failed` and the old one stays fully in
-force.
+step failed, the half-built snapshot is left in `building` (never published) and
+the old one stays fully in force.
 
 The coordinator will now advertise the new version to workers in heartbeats.
 
@@ -218,9 +218,9 @@ that consensus, never any individual's report, is published back to VPS Advisor
 for the world to see.
 
 Next, pick any stage to go deeper:
-[installation](worker-installation.md) ·
-[publishing](snapshot-publishing.md) ·
+[installation](../worker/installation.md#what-vapn-install-actually-does) ·
+[publishing](../builder/README.md#one-build-stage-by-stage) ·
 [authentication](worker-authentication.md) ·
 [measurement](measurement-lifecycle.md) ·
 [trust](trust-calculation.md) ·
-[updates](software-updates.md).
+[updates](../worker/operations.md#updating).

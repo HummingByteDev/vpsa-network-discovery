@@ -12,7 +12,7 @@ CHECK over enums where states will evolve, native `cidr`/`inet` types for routin
 ```sql
 create table routing.snapshot (
   id               bigint primary key generated always as identity,
-  version          text not null unique,            -- e.g. 20260718T0800Z-1
+  version          text not null unique,            -- e.g. 20260718T0800Z-1723118400000
   source_uri       text not null,                   -- RIS bview identity
   source_timestamp timestamptz not null,
   status           text not null default 'building'
@@ -252,5 +252,7 @@ pruning, backing replay protection until/unless a Redis cache is introduced.
 - **Roles:** one Postgres role per service with least privilege (builder cannot touch
   `measurements`; coordinator cannot write `aggregation`; aggregator reads
   `measurements`, writes `aggregation` + `registry.trust_*`).
-- **Backups:** nightly base backup + WAL archiving; measurements partitions are
-  re-derivable pain but aggregates and registry are precious. See operations docs later.
+- **Backups:** nightly compressed `pg_dump` of the whole database, readback-verified
+  and optionally copied offsite; measurements partitions are re-derivable pain but
+  aggregates and registry are precious. See
+  [backup & restore](../operations/backup-restore.md).

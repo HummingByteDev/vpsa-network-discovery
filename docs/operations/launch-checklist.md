@@ -7,7 +7,7 @@ somewhere.
 ## Platform
 
 - [ ] VM provisioned per deployment.md; host checklist from
-      security-hardening.md applied (ufw, SSH keys, NTP, unattended-upgrades).
+      security.md applied (ufw, SSH keys, NTP, unattended-upgrades).
 - [ ] `.env` complete; secrets generated fresh (nothing from dev); copy of
       `.env` in the team secret store; `chmod 600`.
 - [ ] Snapshot signing keypair generated; public key recorded where worker
