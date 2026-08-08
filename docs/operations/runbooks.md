@@ -72,7 +72,7 @@ Active workers at zero or halved.
 3. A coordinated worker-version failure (bad release): check
    `vapnctl status` software versions; roll the worker release back (workers
    auto-update to whatever the release channel offers — see
-   release-management.md).
+   releases-and-upgrades.md).
 4. Genuine community churn: nothing operational to do; scheduler
    redistributes within one lease TTL and redundancy absorbs it (verified to
    25% simultaneous loss in tests).
@@ -102,7 +102,7 @@ Active workers, zero ingest.
    `vapnctl snapshots list`, roll back if so.
 3. Uploads rejected wholesale (signature verification)? Coordinator logs will
    show it; a platform key-handling bug would look like this — check recent
-   deploys and roll back the platform version (upgrades.md).
+   deploys and roll back the platform version (releases-and-upgrades.md).
 
 ## http-errors
 
@@ -123,6 +123,6 @@ Mass registrations (abuse of the enrollment path):
 
 ## compromise-response
 
-See [security-hardening.md](security-hardening.md#compromise-response) for
+See [security.md](security.md#compromise-response) for
 the full procedure (platform host, worker credential, and signing-key
 scenarios).

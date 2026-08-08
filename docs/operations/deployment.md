@@ -3,8 +3,14 @@
 The officially supported v1 topology: **one Ubuntu LTS VM, Docker Compose,
 Caddy at the edge**, PostgreSQL in the stack, artifacts in any S3-compatible
 store. It comfortably serves several hundred community workers. Every service
-is stateless apart from postgres and the object store, so a later migration
-to Kubernetes is a packaging change, not an architecture change.
+is stateless apart from postgres and the object store, so a later migration to
+Kubernetes is a packaging change, not an architecture change.
+
+> **Installing for the first time?** Follow
+> **[Install the builder](../builder/installation.md)** — it is the step-by-step
+> guide that brings up this entire stack, from a fresh VPS to a published signed
+> snapshot. This page is the operator's reference for the topology it produces:
+> what talks to what, which pieces are optional, and how to vary it.
 
 ## What talks to what
 
@@ -21,92 +27,105 @@ workers (community, anywhere)             VPS Advisor website
                    builder (scheduled)      postgres
                         │
                         ▼
-              S3-compatible object store (B2 / R2 / AWS / minio)
+              S3-compatible object store (B2 / R2 / AWS / MinIO)
 ```
 
 Only Caddy has published ports. `/api/v1/*` is public (workers), `/admin/v1/*`
-is CIDR-allowlisted, everything else is internal.
+is CIDR-allowlisted, `/grafana/*` is served only with the monitoring profile,
+and everything else — `/metrics`, `/healthz`, postgres, the aggregator — is
+internal-network only.
 
 ## Prerequisites
 
-- Ubuntu LTS VM: 4 vCPU / 8 GB RAM / 80 GB disk is comfortable. The builder
-  parses a ~4 GB MRT dump per run — disk and memory headroom matter more
-  than steady-state load.
-- A DNS A/AAAA record for your platform domain pointing at the VM.
-- Docker Engine + Compose plugin (`curl -fsSL https://get.docker.com | sh`).
-- An S3-compatible bucket + key pair (Backblaze B2 recommended; Cloudflare
-  R2 and AWS S3 are drop-in — endpoint/region/credentials in `.env` only).
-- A MaxMind account for GeoLite2 (free; **bring your own license key** — the
+- **Ubuntu LTS VM**: 4 vCPU / 8 GB RAM / 80 GB disk is comfortable. The builder
+  parses a multi-gigabyte MRT dump per run — disk and memory headroom matter
+  more than steady-state load.
+- **A DNS A/AAAA record** for your platform domain pointing at the VM.
+- **Docker Engine + Compose plugin** (`curl -fsSL https://get.docker.com | sh`).
+- **An S3-compatible bucket + key pair.** Backblaze B2, Cloudflare R2 and AWS S3
+  are all drop-in — endpoint, region and credentials live in `.env` only.
+- **A MaxMind account** for GeoLite2 (free; bring your own licence key — the
   databases must not be redistributed).
-- The VPS Advisor service credential (or run the mockadvisor stub while the
-  website integration is pending).
+- **The VPS Advisor service credential**, or the `mockadvisor` stub while the
+  website integration is pending.
 
-## Install
+## The compose profiles
 
-```sh
-sudo mkdir -p /opt/vapn && sudo chown "$USER" /opt/vapn
-git clone https://github.com/HummingByteDev/vpsa-network-discovery /opt/vapn
-cd /opt/vapn/deploy/prod
-cp .env.example .env
-```
+`deploy/prod/docker-compose.yml` ships four groups of services:
 
-Fill in `.env` (every value; see comments inline). Generate secrets:
+| Command | Brings up |
+|---|---|
+| `docker compose up -d` | caddy, postgres, migrate (one-shot), coordinator, aggregator — the platform |
+| `docker compose --profile geoip up -d` | `geoipupdate`, refreshing GeoLite2 into `./geoip` every 72 h |
+| `docker compose --profile monitoring up -d` | Prometheus (30-day retention) + Grafana with the VAPN Fleet dashboard |
+| `docker compose run --rm builder` | One snapshot build, then exit — normally driven by `vapn-builder.timer` |
 
-```sh
-openssl rand -hex 32          # VAPN_DB_PASSWORD, VAPN_ADMIN_TOKEN
-docker compose run --rm --entrypoint /keygen builder   # snapshot signing keypair
-```
+The builder is in the `build` profile precisely so it never starts as a
+long-running service.
 
-Keep `VAPN_SNAPSHOT_SIGNING_KEY` in `.env` (chmod 600) and record the public
-key — workers pin it. **Losing the private key means re-issuing the public
-key to every worker; treat it like a CA key.**
+## Scheduled jobs
 
-Bring the stack up:
+Two systemd units are shipped in `deploy/prod/systemd/` and expect the
+repository at `/opt/vapn`:
 
-```sh
-docker compose up -d                         # edge, db, coordinator, aggregator
-docker compose --profile geoip up -d         # MaxMind updater (BYO key)
-docker compose --profile monitoring up -d    # prometheus + grafana (recommended)
-```
+| Timer | Schedule | Runs |
+|---|---|---|
+| `vapn-builder.timer` | 00:30, 08:30, 16:30 UTC (±10 min jitter) | `docker compose run --rm builder` |
+| `vapn-backup.timer` | 03:15 UTC nightly (±15 min jitter) | `scripts/backup.sh` |
 
-Install the scheduled jobs:
-
-```sh
-sudo cp systemd/vapn-*.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now vapn-builder.timer vapn-backup.timer
-sudo systemctl start vapn-builder.service    # first snapshot build right now
-```
-
-The first build downloads the RIS bview (~4 GB), extracts monitored
-prefixes, publishes the signed artifact, and exits 0. Verify:
-
-```sh
-export VAPN_COORDINATOR_URL=https://$YOUR_DOMAIN VAPN_ADMIN_TOKEN=...
-vapnctl status          # snapshot version + target count should be populated
-vapnctl snapshots list
-```
+Installation and verification: [builder installation, Step 8](../builder/installation.md#step-8--run-the-builder-automatically).
 
 ## First workers
 
-Until the VPS Advisor enrollment UI ships, enroll via the platform:
+Until the VPS Advisor enrollment UI ships, enrol operators directly through the
+platform:
 
 ```sh
-vapnctl workers create --name anchor-fra-1   # prints one-time token
-# operator runs the vapn installer with that token (docs/worker/install.md)
+vapnctl workers create --name anchor-fra-1     # prints a one-time token
+# give the operator that token AND your snapshot public key;
+# they run the installer: docs/worker/installation.md
 vapnctl workers approve <worker-id> --reason "anchor node"
 ```
 
-## Notes
+> **Both values are needed.** The enrollment token proves the operator is real;
+> the **snapshot public key** (printed by `keygen`, and by the builder at the
+> start of every run) is what lets their worker verify the routing snapshot.
+> Publish the public key wherever you explain how to join.
 
-- **Health checks**: every service self-reports; `docker compose ps` shows
-  health. Externally, `https://domain/api/v1/...` returning 401 (unsigned) is
-  the cheap liveness signal — the edge and coordinator are up.
-- **Scaling within the VM**: the coordinator is stateless —
+Enrol **3–5 anchor workers you control, geographically spread**, before opening
+community enrollment — consensus needs a trustworthy baseline, and
+`VAPN_MIN_WORKERS` (default 3) is unreachable without one. See the
+[launch checklist](launch-checklist.md).
+
+## Operational notes
+
+- **Health checks.** Every service self-reports; `docker compose ps` shows
+  health. Externally, `https://$VAPN_DOMAIN/api/v1/workers/me` returning `401`
+  (unsigned request correctly refused) is the cheap liveness signal that the
+  edge and coordinator are up.
+- **Scaling within the VM.** The coordinator is stateless —
   `docker compose up -d --scale coordinator=2` works behind Caddy if a single
-  process ever saturates (load tests put that point well past 500 workers).
-- **External postgres**: point `VAPN_DB_DSN` env overrides at a managed
-  instance and drop the postgres service; nothing else changes.
-- **Kubernetes**: not supported as the v1 target, deliberately. All state
-  lives in postgres + object store, config is env-only, images are distroless
-  — when the fleet outgrows one VM, the same images move into any orchestrator.
+  process ever saturates. [Load tests](monitoring.md#load-testing) put that
+  point well past 500 workers.
+- **External postgres.** Point `VAPN_DB_DSN` at a managed instance and drop the
+  postgres service; nothing else changes.
+- **CDN in front of artifacts.** Artifact distribution is CDN-offloadable from
+  day one; pair the bucket with a CDN as the fleet grows.
+- **Kubernetes** is not supported as the v1 target, deliberately. All state
+  lives in postgres and the object store, config is environment-only, and the
+  images are distroless — when the fleet outgrows one VM, the same images move
+  into any orchestrator.
+
+## Where to go next
+
+| Task | Guide |
+|---|---|
+| Install the stack step by step | [Builder installation](../builder/installation.md) |
+| Every setting and default | [Configuration reference](../reference/configuration.md) |
+| Alerts and dashboards | [Monitoring](monitoring.md) |
+| When an alert fires | [Runbooks](runbooks.md) |
+| Backups and disaster recovery | [Backup & restore](backup-restore.md) |
+| Upgrading and rolling back | [Releases & upgrades](releases-and-upgrades.md) |
+| Hardening and incident response | [Security](security.md) |
+| Before going public | [Launch checklist](launch-checklist.md) |
+| The design record | [Architecture 07 — Deployment](../architecture/07-deployment.md) |

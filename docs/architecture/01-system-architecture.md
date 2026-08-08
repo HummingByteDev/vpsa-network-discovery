@@ -82,7 +82,7 @@ Responsibilities:
   validate origin (drop obviously bogus announcements: bogons, absurd prefix lengths,
   multi-origin conflicts flagged for review).
 - Enrich with MaxMind GeoIP (country/city/registered ASN), fetched from MaxMind with
-  the deployer's own license key (never redistributed); GeoIP refresh is an independent
+  the platform operator's own licence key (never redistributed); GeoIP refresh is an independent
   job on its own cadence.
 - Load the result into the canonical `routing` schema in PostgreSQL, versioned.
 - Export a compact, signed **SQLite artifact** per snapshot version plus a metadata
@@ -131,8 +131,8 @@ A community-run Docker container with minimal configuration (enrollment token + 
 URL; everything else is automatic).
 
 Responsibilities: generate keypair, register, poll for approval, download & verify
-routing snapshot (optionally fetch GeoLite2 directly from MaxMind with the operator's
-own key — geo features degrade gracefully without one), heartbeat, request assignment
+routing snapshot (no MaxMind key needed — geo attribution is done centrally by the
+builder and ships as derived fields inside the artifact), heartbeat, request assignment
 leases, execute
 probes, sign and upload observations, self-update its data artifacts, honour remote
 config (rate limits, intervals, suspension).

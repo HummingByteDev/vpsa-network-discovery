@@ -385,7 +385,7 @@ charts (optional at launch; accept-and-store, payloads up to ~1 MB).
 **`POST /api/v1/monitoring/telemetry/fleet`** — admin-dashboard summary:
 
 ```json
-{ "as_of": "...", "workers_by_state": { "active": 41, "pending": 3 }, "software_versions": { "1.2.0": 39, "1.1.2": 2 }, "published_snapshot": "20260718T0800Z-1", "security_events_24h": { "replay": 0, "bad_signature": 2 } }
+{ "as_of": "...", "workers_by_state": { "active": 41, "pending": 3 }, "software_versions": { "1.2.0": 39, "1.1.2": 2 }, "published_snapshot": "20260718T0800Z-1723118400000", "security_events_24h": { "replay": 0, "bad_signature": 2 } }
 ```
 
 ```python

@@ -115,5 +115,5 @@ to the VPS Advisor admin dashboard via [fleet telemetry](../integration/django-i
 
 Migrations are backward-compatible one version back (expand → migrate →
 contract) so coordinator replicas can roll during an upgrade. Applied by
-`./bin/migrate` (or the `migrate` container). Backups: nightly base + WAL
-archiving — see [backup & restore](../operations/backup-restore.md).
+`./bin/migrate` (or the `migrate` container). Backups: a nightly readback-verified
+`pg_dump` — see [backup & restore](../operations/backup-restore.md).

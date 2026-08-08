@@ -4,14 +4,23 @@ Two command-line tools ship with VAPN:
 
 - **`vapn`** — the **worker operator** CLI (community-facing). Wraps Docker so
   operators never touch containers directly. Full narrative:
-  [worker command reference](../worker/command-reference.md).
+  [operating a worker](../worker/operations.md).
 - **`vapnctl`** — the **platform administration** CLI. Drives the
   [platform admin API](../api/README.md#c-platform-admin-api).
 
 Other binaries in `cmd/` are services or tools, not interactive CLIs:
-`coordinator`, `aggregator`, `builder`, `worker`, `migrate`, `mockadvisor`,
-`keygen`, `loadtest` — see [configuration](configuration.md) for how they're
-run.
+
+| Binary | What it is |
+|---|---|
+| `coordinator` · `aggregator` | Long-running services |
+| `builder` | One-shot snapshot build ([guide](../builder/installation.md)) |
+| `worker` | The agent inside the worker container (`vapn` drives it) |
+| `migrate` | Applies the SQL migrations, then exits |
+| `keygen` | Prints a snapshot signing keypair ([how to run it](configuration.md#snapshot-signing-keys)) |
+| `loadtest` | Synthetic fleet load generator ([usage](../operations/monitoring.md#load-testing)) |
+| `mockadvisor` | VPS Advisor stub for dev/CI |
+
+How each is configured: [configuration](configuration.md).
 
 ---
 
@@ -36,7 +45,7 @@ vapn <command>
 | `version` | Print the CLI version |
 
 Home directory: `~/.vapn` (override with `VAPN_HOME`). Per-command detail and
-recipes: [worker command reference](../worker/command-reference.md).
+recipes: [operating a worker](../worker/operations.md).
 
 ---
 
@@ -84,7 +93,7 @@ vapnctl scheduler pause                           # …later… vapnctl schedule
 
 # Roll back a bad snapshot
 vapnctl snapshots list
-vapnctl snapshots rollback 20260717T0800Z-1       # audited
+vapnctl snapshots rollback 20260717T0800Z-1723032000000     # audited
 
 # Review recent security events
 vapnctl audit --category security --since 2026-07-18T00:00:00Z --limit 100

@@ -64,8 +64,8 @@ VAPN touches several very different audiences. Each has a reading path below.
 
 | You are… | You want to… | Start here |
 |---|---|---|
-| **A community member** with a spare Linux box | Run a worker and contribute measurements | [Getting Started → Quick Start](getting-started/quickstart.md) |
-| **An operator / DevOps engineer** | Deploy and run the platform itself | [Setup → Deploy the platform](operations/deployment.md) |
+| **A community member** with a spare Linux box | Run a worker and contribute measurements | [Install a worker](worker/installation.md) |
+| **An operator / DevOps engineer** | Deploy and run the platform itself | [Install the builder](builder/installation.md) |
 | **A VPS Advisor / Django developer** | Integrate the website with VAPN | [VPS Advisor Integration](integration/README.md) |
 | **A contributor / developer** | Understand the code and submit changes | [Development](development/README.md) |
 | **Someone who wants to understand it deeply** | Learn the whole system from first principles | [The Project Handbook](handbook/README.md) |
@@ -80,15 +80,16 @@ software developer who has simply never worked with Internet routing.
 ## Where should I start?
 
 ### 🧭 Contributors (run a worker)
-1. [Quick Start](getting-started/quickstart.md) — a worker running in minutes
+1. **[Install a worker](worker/installation.md)** — running in about five minutes
 2. [What a worker does & what it costs you](worker/resources-and-privacy.md)
-3. [Worker command reference](worker/command-reference.md)
-4. [Worker FAQ & troubleshooting](getting-started/faq.md)
+3. [Operating a worker](worker/operations.md) — every command, updating, leaving
+4. [Troubleshooting & FAQ](worker/troubleshooting.md)
 
 ### 🛠️ Operators (run the platform)
-1. [Architecture overview](architecture/01-system-architecture.md) — the big picture
-2. [Deployment guide](operations/deployment.md) — a single VM with Docker Compose
-3. [The RIPE Routing Builder](builder/README.md) — how the routing data is made
+1. **[Install the builder](builder/installation.md)** — fresh VPS to a published
+   signed snapshot, step by step. This brings up the whole platform
+2. [How the builder works](builder/README.md) — how the routing data is made
+3. [Deployment reference](operations/deployment.md) — the topology, profiles, scaling
 4. [Operations](operations/README.md) — monitoring, backups, upgrades, incident response
 
 ### 🌐 VPS Advisor / Django developers
@@ -108,11 +109,10 @@ software developer who has simply never worked with Internet routing.
 
 | Section | What's inside |
 |---|---|
-| [Getting Started](getting-started/README.md) | Quick start, install, update, uninstall, FAQ, troubleshooting |
 | [Core Concepts](concepts/README.md) | The Internet, IP/CIDR, ASN, BGP, RIPE/RIS/MRT, GeoIP, consensus & trust |
 | [Architecture](architecture/README.md) | System design, domain model, database, security & trust, lifecycles, deployment, risk, roadmap |
-| [Walkthroughs](walkthroughs/README.md) | End-to-end trace plus focused lifecycles (install, publish, auth, measurement, trust, updates) |
-| [RIPE Routing Builder](builder/README.md) | How routing intelligence is built from RIPE RIS data, and how to run the builder |
+| [Walkthroughs](walkthroughs/README.md) | End-to-end trace plus focused deep dives (authentication, measurement, trust) |
+| [Routing Builder](builder/README.md) | How routing intelligence is built from RIPE RIS data — and the step-by-step install |
 | [Community Workers](worker/README.md) | Everything about running a worker: install, commands, lifecycle, cost, privacy |
 | [VPS Advisor Integration](integration/README.md) | The complete contract for the Django website team |
 | [API Reference](api/README.md) | Every endpoint: purpose, auth, request, response, errors, examples |
@@ -120,6 +120,18 @@ software developer who has simply never worked with Internet routing.
 | [Development](development/README.md) | Repo layout, standards, testing, CI, releases, contribution guide |
 | [Reference](reference/README.md) | CLI, configuration, environment variables, database schema, glossary |
 | [Project Handbook](handbook/README.md) | The entire system as one book, from networking fundamentals up |
+| [Demos](demos/) | A runnable walkthrough of each build phase |
+
+Where a fact appears in more than one place, one document is **authoritative**
+and the others link to it:
+
+| Topic | Authoritative source |
+|---|---|
+| Every setting, default, and accepted value | [Configuration reference](reference/configuration.md) |
+| Every HTTP endpoint and schema | [API reference](api/README.md) |
+| Components, data flows, design decisions | [Architecture](architecture/README.md) |
+| Every command | [CLI reference](reference/cli.md) |
+| Every term | [Glossary](reference/glossary.md) |
 
 ---
 

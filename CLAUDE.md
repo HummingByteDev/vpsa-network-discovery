@@ -2,618 +2,768 @@
 
 # VPS Advisor Community Network Intelligence Platform
 
-## Project Background
+## Documentation Consolidation and Simplified Builder Installation
 
-This repository is **NOT** the VPS Advisor website.
+You are working on the documentation for the **VPS Advisor Community Network Intelligence Platform**.
 
-The VPS Advisor website already exists and is in active production.
+The implementation is already complete.
 
-This project is a completely independent backend service responsible for providing **network intelligence and provider health data** that will later be consumed by the VPS Advisor website.
+Your task is to improve and consolidate the existing documentation so that it is:
 
-The purpose of this repository is to build the complete distributed network monitoring ecosystem that powers the provider uptime information displayed on VPS Advisor.
+- accurate
+- easy to navigate
+- non-redundant
+- internally consistent
+- beginner-friendly where appropriate
+- technically comprehensive where required
+- easy to maintain
 
-Think of this project as the "network observability backend" of VPS Advisor.
+This is primarily a **documentation restructuring and improvement task**.
 
-The VPS Advisor website will become a consumer of this project's APIs.
+Do not redesign or reimplement the application.
 
----
-
-# About VPS Advisor
-
-VPS Advisor is an independent cloud and VPS provider review platform.
-
-Providers can:
-
-- create an account
-- claim their company
-- manage their listings
-- publish products
-- receive reviews
-- compare against competitors
-
-One of the major features planned for VPS Advisor is **Provider Network Health**.
-
-Unlike traditional uptime websites, VPS Advisor does **NOT** monitor individual customer servers.
-
-Instead, VPS Advisor measures the health of the provider's public network.
-
-The objective is to answer questions such as:
-
-- Is this provider's network healthy?
-- How reliable is this provider globally?
-- How reliable is this provider in my region?
-- Has this provider experienced routing instability recently?
-- How has this provider performed historically?
-
-The implementation should always keep this objective in mind.
+Do not change application behaviour merely to accommodate documentation.
 
 ---
 
-# What We Are Monitoring
+# 1. Understand the Existing Project First
 
-This project **DOES NOT** crawl the Internet looking for providers.
+Before changing any documentation, inspect the repository and understand:
 
-Instead, VPS Advisor is the authoritative source.
+- project architecture
+- builder
+- community worker
+- coordinator
+- aggregation
+- routing snapshots
+- PostgreSQL
+- object storage
+- RIPE RIS integration
+- MaxMind integration
+- worker authentication
+- snapshot signing
+- VPS Advisor integration
+- deployment architecture
+- CLI commands
+- Docker configuration
+- systemd configuration
+- environment variables
+- existing documentation
 
-The VPS Advisor website already contains the provider database.
+Also inspect the existing `docs/` directory completely.
 
-Each provider record may contain one or more Autonomous System Numbers (ASNs).
+Do not immediately create new documentation.
 
-Only providers listed on VPS Advisor should ever be monitored.
+First determine:
 
-If a provider does not exist on VPS Advisor, it does not exist to this project.
-
-This greatly simplifies the monitoring scope.
-
----
-
-# Source of Truth
-
-The VPS Advisor website is the authoritative source for:
-
-- Providers
-- Provider IDs
-- Company information
-- ASN ownership
-- Monitoring status
-- Provider configuration
-
-This project must never maintain its own provider registry.
-
-Instead, worker infrastructure consumes provider information from VPS Advisor.
-
----
-
-# Provider Discovery
-
-This project will not scan the Internet for ASNs.
-
-Instead, VPS Advisor will expose authenticated API endpoints that return providers eligible for monitoring.
-
-Example information returned:
-
-- Provider ID
-- Provider Name
-- ASN(s)
-- Monitoring enabled
-- Priority
-- Additional future metadata
-
-The monitoring platform only stores the returned ASN information necessary for routing intelligence.
-
-No duplicate provider database should exist inside this project.
+1. What documentation already exists?
+2. Which documents overlap?
+3. Which documents contain the authoritative version of information?
+4. Which documents should be merged?
+5. Which documents should remain separate?
+6. Which documents are missing?
+7. Which information is duplicated across multiple files?
+8. Which links will need updating after consolidation?
 
 ---
 
-# High-Level Architecture
+# 2. Documentation Consolidation Is a Priority
 
-The overall architecture consists of two independent systems.
+The current documentation contains several related documents.
 
-```
-                    VPS Advisor Website
-                           │
-                           │
-          Provider API / Assignment API
-                           │
-                           ▼
-      Community Network Intelligence Platform
-                           │
-       ┌───────────────────┼────────────────────┐
-       │                   │                    │
-       ▼                   ▼                    ▼
- Snapshot Builder     Worker Network     Aggregation Engine
-       │                   │                    │
-       └───────────────────┼────────────────────┘
-                           │
-                           ▼
-                 Results API (VPS Advisor)
-```
+Do NOT solve documentation gaps by continuously creating additional files.
 
-The VPS Advisor website remains responsible for presentation.
+Before creating a new document, determine whether the information belongs in an existing document.
 
-This project remains responsible for measurement.
+The goal is:
 
----
+> Fewer, clearer, better-organized documents rather than many small documents containing overlapping information.
 
-# Scope
+Merge documents when they cover substantially the same subject.
 
-This repository is responsible for:
+For example, if multiple documents explain:
 
-- Routing intelligence
-- ASN ownership
-- BGP processing
-- Probe scheduling
-- Worker management
-- Measurement execution
-- Consensus
-- Trust
-- Reputation
-- Aggregation
-- APIs
-- Snapshot publishing
+- builder installation
+- builder configuration
+- builder operation
+- builder deployment
 
-This repository is **NOT** responsible for:
+consider whether they can be consolidated into a coherent builder guide instead of requiring the reader to navigate several documents.
 
-- Provider profiles
-- Reviews
-- User accounts
-- Billing
-- Provider management
-- Website frontend
+Likewise, identify similar redundancy across:
 
-Those already exist.
-
----
-
-# Routing Intelligence
-
-Routing information originates from RIPE RIS.
-
-The implementation should create a routing intelligence database containing only prefixes belonging to providers monitored by VPS Advisor.
-
-Example workflow:
-
-```
-VPS Advisor
-
-↓
-
-Retrieve monitored ASN list
-
-↓
-
-Download RIPE RIS snapshot
-
-↓
-
-Extract prefixes belonging only to monitored ASNs
-
-↓
-
-Deduplicate
-
-↓
-
-Build PostgreSQL snapshot
-
-↓
-
-Publish
-```
-
-Do not build a database containing every ASN on the Internet if only a subset is needed.
-
-Design the architecture so this optimisation happens naturally.
-
----
-
-# Snapshot Builder
-
-Implement a dedicated snapshot builder.
-
-Responsibilities include:
-
-- download RIPE snapshots
-- obtain monitored ASN list
-- extract matching prefixes
-- remove duplicate prefixes
-- validate routing ownership
-- enrich routing data
-- build PostgreSQL database
-- version snapshots
-- generate metadata
-- publish snapshots
-
-Workers consume these published snapshots.
-
-Workers never parse MRT files.
-
----
-
-# PostgreSQL
-
-Use PostgreSQL throughout the project.
-
-Design schemas suitable for:
-
-- routing intelligence
-- measurements
-- worker registry
-- reputation
-- scheduling
-- snapshot management
-
-Take advantage of PostgreSQL features whenever appropriate.
-
----
-
-# GeoIP
-
-Integrate MaxMind GeoIP.
-
-GeoIP should enrich routing intelligence.
-
-GeoIP updates should be independent from routing snapshot updates.
-
----
-
-# Worker Nodes
-
-Worker nodes are Docker containers.
-
-Workers are intended to be run by the community.
-
-Workers should automatically:
-
-- authenticate
-- register
-- download routing snapshot
-- download GeoIP database
-- request assignments
-- execute measurements
-- upload signed observations
-- receive configuration updates
-
-Workers should require minimal configuration.
-
----
-
-# Probe Engine
-
-The probe engine should be protocol agnostic.
-
-ICMP is only one measurement type.
-
-The architecture should support future protocols without redesign.
-
-Workers execute assignments received from VPS Advisor.
-
-Workers never choose probe targets themselves.
-
----
-
-# Aggregation
-
-Multiple workers measure the same provider.
-
-Public status should always originate from aggregated consensus.
-
-Individual worker observations should never become public results directly.
-
-The aggregation engine should calculate:
-
-- health
-- confidence
-- regional status
-- latency statistics
-- packet loss
-- anomaly detection
-- future network metrics
-
----
-
-# Trust Model
-
-Workers continuously build trust.
-
-Trust should influence measurement weighting.
-
-The implementation should support:
-
-- reputation
-- suspension
-- approval
-- quarantine
-- retirement
-- credential rotation
-
-Administrators should always remain in control.
-
----
-
-# VPS Advisor Integration
-
-The implementation must include comprehensive documentation describing every endpoint that should exist on the VPS Advisor website.
-
-Examples include (but are not limited to):
-
-## Provider APIs
-
-- monitored providers
-- provider ASN lookup
-- monitoring configuration
-- provider priority
-
-## Authentication APIs
-
-- worker registration
-- worker approval
-- authentication
-- key rotation
-- credential renewal
-
-## Assignment APIs
-
-- assignment retrieval
-- heartbeat
-- configuration
-- software version
-
-## Result APIs
-
-- measurement upload
-- aggregated status upload
-- worker diagnostics
-
-## Administration APIs
-
-- worker management
-- snapshot management
-- trust management
-- assignment management
-
-Claude should determine every required endpoint and produce comprehensive API specifications.
-
----
-
-# VPS Advisor Changes
-
-Although the VPS Advisor website already exists, this project requires new integration points.
-
-Claude should identify every modification required on the VPS Advisor website.
-
-Examples include:
-
-- new database models
-- new APIs
-- new authentication flows
-- new dashboard pages
-- new administration pages
-- new permissions
-- new scheduled tasks
-- new background jobs
-- new notification events
-
-Document everything comprehensively.
-
-Do not implement the website.
-
-Produce implementation documentation for the website team.
-
----
-
-# Worker Management
-
-The VPS Advisor administration dashboard should become the control centre for the worker network.
-
-Claude should document every management capability required.
-
-Examples include:
-
-- worker approval
-- suspension
-- retirement
-- diagnostics
-- software version monitoring
-- trust monitoring
-- routing snapshot status
-- measurement analytics
-- security events
-- audit logs
-
----
-
-# Security
-
-Security is a first-class concern.
-
-Design assuming:
-
-- malicious workers exist
-- compromised credentials exist
-- unreliable measurements exist
-
-The implementation should support:
-
-- signed communication
-- replay protection
-- credential rotation
-- trust scoring
-- consensus
-- audit logging
-
----
-
-# Docker
-
-Every deployable component should be containerised.
-
-Developer experience is important.
-
-The project should support:
-
-- local development
-- production deployment
-- orchestration
-- upgrades
-
----
-
-# Documentation
-
-Documentation is as important as the implementation.
-
-Claude should produce comprehensive documentation covering:
-
-## Architecture
-
-- complete architecture
-- component interaction
-- communication flow
-- trust model
-- routing lifecycle
-- measurement lifecycle
-
-## Installation
-
-Document every component individually.
-
-## Builder
-
-Document:
-
-- setup
-- operation
-- updates
-- publishing
-- troubleshooting
-
-## Worker
-
-Document:
-
-- installation
-- authentication
-- lifecycle
-- updating
-- diagnostics
-
-## API Documentation
-
-Produce comprehensive API documentation.
-
-Every endpoint should contain:
-
-- purpose
-- authentication
-- request schema
-- response schema
-- examples
-- status codes
-- error handling
-
-## VPS Advisor Integration Guide
-
-Produce a dedicated integration document for the VPS Advisor website.
-
-It should describe:
-
-- required backend changes
-- required API endpoints
-- required database additions
-- required dashboard additions
-- deployment considerations
-- operational workflow
-
-This document should be detailed enough that another engineering team could implement the website integration independently.
-
-## Security Documentation
-
-Document:
-
-- authentication
-- trust model
-- threat model
-- worker lifecycle
-- credential rotation
-- compromise response
-
-## Operations Documentation
-
-Document:
-
-- upgrades
-- disaster recovery
-- backup
-- monitoring
-- troubleshooting
-- incident response
-
----
-
-# Implementation Strategy
-
-Do **NOT** begin coding immediately.
-
-First perform a complete architectural analysis.
-
-Produce:
-
-1. System architecture
-2. Component boundaries
-3. Service responsibilities
-4. Domain model
-5. Database design
-6. API contracts
-7. Security model
-8. Trust model
-9. Worker lifecycle
-10. Snapshot lifecycle
-11. Deployment architecture
-12. Risk assessment
-13. Phased implementation roadmap
-
-Only after the architecture has been approved should implementation begin.
-
-Implementation must be milestone-based.
-
-Each milestone should produce a functional, testable subsystem.
-
-Suggested phases include:
-
-- Phase 1: Architecture & Foundation
-- Phase 2: Routing Snapshot Builder
-- Phase 3: Snapshot Distribution
-- Phase 4: Worker Framework
-- Phase 5: Probe Engine
-- Phase 6: Authentication & Trust
-- Phase 7: Scheduler & Assignments
-- Phase 8: Aggregation Engine
-- Phase 9: VPS Advisor Integration
-- Phase 10: Administration & Operations
-- Phase 11: Testing, Documentation & Production Readiness
-
-Claude should refine and expand these phases where appropriate.
-
----
-
-# Final Goal
-
-The finished project should resemble a mature, production-ready, open-source distributed Internet observability platform rather than a simple uptime checker.
-
-Every architectural decision should prioritise:
-
-- scalability
-- maintainability
+- architecture
+- operations
+- worker documentation
+- deployment
 - security
-- modularity
-- observability
-- operational excellence
-- future extensibility
-- excellent documentation
+- API documentation
+- integration documentation
 
-Assume this project will become the authoritative network intelligence platform powering VPS Advisor for many years and may eventually support tens of thousands of providers and thousands of community-operated worker nodes worldwide.
+Do not merge documents merely because they are related.
 
-# Note
+Keep documents separate when they serve clearly different audiences or purposes.
 
-RIPE RIS data and Maxmind GeoIP data has already been downloaded in `data/` directory to save time during development.
+---
+
+# 3. Establish a Single Source of Truth
+
+For every important concept, establish one authoritative location.
+
+Examples:
+
+### Configuration
+
+The configuration reference should be authoritative for:
+
+- environment variables
+- defaults
+- valid values
+- configuration semantics
+
+Other documents should explain configuration at a high level and link to the reference instead of duplicating the entire configuration table.
+
+### Architecture
+
+Architecture documentation should be authoritative for:
+
+- system components
+- data flows
+- architectural decisions
+- service relationships
+
+Operational documents should focus on operating the system rather than duplicating architectural explanations.
+
+### API
+
+The API documentation should be authoritative for:
+
+- endpoints
+- authentication
+- request formats
+- response formats
+- error responses
+
+Integration guides should explain how to use the API in context rather than duplicating the complete API specification.
+
+### Installation
+
+Installation guides should focus on getting the software running successfully.
+
+Do not turn every installation guide into an architecture manual.
+
+---
+
+# 4. Documentation Audience
+
+The documentation has multiple audiences.
+
+Do not write every document at the same technical level.
+
+Clearly distinguish between:
+
+### Beginners / Community Contributors
+
+Need:
+
+- simple instructions
+- copy-and-paste commands
+- explanations of unfamiliar terms
+- minimal configuration
+- troubleshooting
+
+### Platform Operators
+
+Need:
+
+- deployment
+- configuration
+- monitoring
+- backups
+- recovery
+- upgrades
+- security
+- operational procedures
+
+### Developers
+
+Need:
+
+- architecture
+- APIs
+- database
+- internal services
+- development workflow
+- testing
+
+### VPS Advisor Developers
+
+Need:
+
+- Django integration
+- API contracts
+- worker integration
+- provider/ASN synchronization
+- monitoring data integration
+
+Do not expose unnecessary implementation details to beginner users.
+
+---
+
+# 5. Simplified Builder Installation Is a Major Requirement
+
+The existing builder documentation is technically accurate but is too advanced for the primary installation experience.
+
+Create a **single, clean, beginner-oriented builder installation path**.
+
+The target user is:
+
+> A person with a freshly installed VPS who can connect through SSH and follow commands, but does not necessarily understand Linux administration, BGP, ASN, RIPE RIS, PostgreSQL, Docker, or cryptography.
+
+The user should be able to follow the guide sequentially.
+
+The guide should feel like:
+
+1. Connect to your VPS.
+2. Install the required prerequisites.
+3. Clone the repository.
+4. Generate the snapshot signing key.
+5. Configure the builder.
+6. Start the builder.
+7. Run the first build.
+8. Verify the snapshot.
+9. Enable automatic execution.
+10. Check that everything is working.
+
+Do not require the user to understand the architecture before completing these steps.
+
+---
+
+# 6. Builder Installation Must Reflect the Actual Implementation
+
+Inspect the implementation before writing the guide.
+
+Verify:
+
+- repository URL
+- required packages
+- Docker requirements
+- Docker Compose requirements
+- builder commands
+- key generation command
+- environment variables
+- configuration files
+- systemd services
+- systemd timers
+- PostgreSQL requirements
+- MaxMind requirements
+- RIPE RIS requirements
+- object storage requirements
+- snapshot publishing
+- verification commands
+- update procedure
+- rollback procedure
+
+Do not invent commands.
+
+Do not document hypothetical workflows.
+
+If the current implementation has a limitation, document the limitation rather than hiding it.
+
+---
+
+# 7. Snapshot Signing Key
+
+The simplified installation guide must explicitly include a step for generating the snapshot signing key.
+
+Explain this in plain language.
+
+The reader should understand:
+
+- why the key exists
+- what the private key does
+- what the public key does
+- where each is used
+- why the private key must remain secret
+- what happens if the private key is lost
+- what happens if the private key is compromised
+
+Use a clear security warning.
+
+The installation guide should make this a deliberate installation step rather than hiding it inside advanced configuration.
+
+---
+
+# 8. Builder Configuration
+
+The simplified builder guide must include a clear configuration section.
+
+Do not merely provide a large environment-variable dump.
+
+Organize configuration into understandable groups.
+
+For every important setting explain:
+
+- what it does
+- whether it is required
+- where the value comes from
+- whether it is secret
+- what the operator should enter
+
+For example:
+
+| Setting | Required? | What it does | What to enter |
+| ------- | --------- | ------------ | ------------- |
+
+Explain important settings including, where applicable:
+
+- PostgreSQL connection
+- VPS Advisor URL
+- VPS Advisor service token
+- RIPE RIS source
+- RIPE data cache
+- RIPE data freshness
+- MaxMind GeoIP
+- snapshot signing key
+- worker compatibility
+- target limits
+- snapshot sanity checks
+- snapshot retention
+- artifact/object storage
+
+Use the actual configuration variables implemented by the project.
+
+Do not invent configuration values.
+
+---
+
+# 9. Separate Simple Configuration From Advanced Configuration
+
+The beginner installation guide should only expose the settings that an ordinary operator needs.
+
+If there are advanced settings, do not overwhelm the installation guide.
+
+Create or retain a separate configuration reference containing:
+
+- every configuration variable
+- defaults
+- accepted values
+- technical behaviour
+- advanced tuning
+
+The simplified guide should link to that reference.
+
+---
+
+# 10. Builder Installation Should Be Linear
+
+The main installation guide should not force the reader to jump between multiple documents.
+
+The basic journey should be continuous.
+
+For example:
+
+## Step 1
+
+Prepare the VPS.
+
+## Step 2
+
+Download the project.
+
+## Step 3
+
+Generate the signing key.
+
+## Step 4
+
+Configure the builder.
+
+## Step 5
+
+Start the builder.
+
+## Step 6
+
+Run the first build.
+
+## Step 7
+
+Verify the result.
+
+## Step 8
+
+Enable automatic execution.
+
+## Step 9
+
+Learn how to update it.
+
+## Step 10
+
+Troubleshoot common problems.
+
+Advanced documentation may be linked where necessary.
+
+---
+
+# 11. Explain Commands
+
+Every command in beginner-facing documentation should have a short explanation.
+
+Do not provide unexplained blocks of commands.
+
+For example:
+
+```bash
+docker --version
+```
+
+Then explain:
+
+> This confirms that Docker is installed correctly. You should see the installed Docker version.
+
+Keep explanations concise.
+
+---
+
+# 12. Verification After Major Steps
+
+Where practical, every important installation step should have a verification command.
+
+Examples:
+
+- Docker installed
+- repository downloaded
+- signing key generated
+- configuration accepted
+- builder starts
+- database connection works
+- RIPE data downloaded
+- snapshot generated
+- snapshot signed
+- snapshot published
+- automatic schedule enabled
+
+The user should never reach the end of the guide without knowing whether the installation succeeded.
+
+---
+
+# 13. Troubleshooting
+
+Keep troubleshooting beginner-friendly.
+
+Cover the most likely problems.
+
+Examples:
+
+- Docker is unavailable
+- repository cannot be cloned
+- configuration validation fails
+- PostgreSQL connection fails
+- VPS Advisor authentication fails
+- RIPE RIS download fails
+- MaxMind database is unavailable
+- snapshot generation fails
+- sanity check blocks publication
+- signing verification fails
+- systemd timer is not running
+
+For every issue explain:
+
+1. What the problem usually means.
+2. What to check.
+3. What command to run.
+4. What a healthy result looks like.
+5. What to do next.
+
+Link to advanced troubleshooting/runbooks when appropriate.
+
+---
+
+# 14. Keep Architecture Documentation Separate
+
+Do not duplicate the complete builder architecture inside the simplified installation guide.
+
+The installation guide may briefly explain:
+
+> The builder downloads routing information, processes it, creates a signed snapshot, and publishes it for workers.
+
+Then link to the architecture documentation for readers who want to understand:
+
+- RIPE RIS
+- MRT
+- ASN
+- prefix extraction
+- deduplication
+- enrichment
+- validation
+- signing
+- publication
+
+---
+
+# 15. Consolidate Related Documentation
+
+Audit the entire `docs/` directory for opportunities to merge related content.
+
+Look particularly for documents that duplicate:
+
+- installation instructions
+- deployment instructions
+- configuration
+- monitoring
+- security
+- worker setup
+- API integration
+- architecture explanations
+- operational procedures
+
+Where appropriate, consolidate them into a stronger document.
+
+Do not create unnecessary hierarchy.
+
+The documentation tree should be understandable at a glance.
+
+---
+
+# 16. Preserve Important Technical Documentation
+
+Do not simplify everything.
+
+The project still needs comprehensive technical references.
+
+Keep detailed documentation for:
+
+- architecture
+- database
+- API contracts
+- security/trust model
+- lifecycle
+- deployment
+- risk assessment
+- operations
+- monitoring
+- backups
+- recovery
+- upgrades
+- load testing
+- development
+- integration
+
+The goal is not to remove technical depth.
+
+The goal is to put technical depth in the correct place.
+
+---
+
+# 17. Documentation Navigation
+
+After consolidation:
+
+- update `README.md` files
+- update internal links
+- remove broken links
+- remove references to deleted documents
+- update navigation
+- ensure every document is discoverable
+- ensure there are no orphaned documents
+- ensure terminology is consistent
+
+A user should be able to navigate from:
+
+Documentation Home
+
+→ Getting Started
+
+→ Builder
+
+→ Worker
+
+→ VPS Advisor Integration
+
+→ Operations
+
+→ Reference
+
+without encountering duplicate or contradictory information.
+
+---
+
+# 18. Terminology Consistency
+
+Use the project's actual terminology consistently.
+
+Do not alternate unnecessarily between:
+
+- builder / routing builder / collector
+- worker / community worker
+- snapshot / routing snapshot
+- VPS Advisor / Advisor
+- RIPE RIS / RIPE
+- monitoring platform / network intelligence platform
+
+Where multiple terms are valid, establish the preferred term and use it consistently.
+
+Update the glossary where necessary.
+
+---
+
+# 19. Do Not Hide Important Operational Details
+
+Even though the builder installation guide is simplified, it must still clearly explain:
+
+- what credentials are required
+- what secrets must be protected
+- what data is downloaded
+- where snapshots are stored
+- how snapshots are published
+- how often the builder runs
+- how workers consume snapshots
+- how to verify successful operation
+- how to recover from failures
+
+Simplify the explanation, not the truth.
+
+---
+
+# 20. Documentation Quality Audit
+
+After restructuring the documentation:
+
+Check for:
+
+- duplicate explanations
+- contradictory instructions
+- outdated commands
+- broken links
+- incorrect paths
+- stale environment variables
+- obsolete architecture descriptions
+- inconsistent terminology
+- missing prerequisites
+- undocumented required credentials
+- unexplained commands
+- excessive technical depth in beginner guides
+
+Fix these issues.
+
+---
+
+# 21. Do Not Generate Documentation From Assumptions
+
+The repository is the source of truth for implementation-specific information.
+
+Before documenting something, verify it in the project.
+
+If the documentation currently says one thing but the implementation does another:
+
+- determine the actual current behaviour
+- update the documentation accordingly
+- clearly identify significant discrepancies in your final report
+
+Do not silently invent a solution.
+
+---
+
+# 22. Final Documentation Structure
+
+After consolidation, the documentation should have a clean information architecture.
+
+You may change the existing structure if necessary.
+
+Prefer something conceptually similar to:
+
+```text
+docs/
+├── README.md
+├── getting-started/
+├── concepts/
+├── architecture/
+├── builder/
+├── worker/
+├── integration/
+├── operations/
+├── development/
+├── reference/
+└── demos/
+```
+
+This is guidance, not a rigid requirement.
+
+Use your judgment based on the actual contents of the repository.
+
+The important requirement is that related information is grouped logically and redundant documents are merged.
+
+---
+
+# 23. Final Builder Installation Standard
+
+The final simplified builder guide should allow a non-technical operator to go from:
+
+> Fresh VPS
+
+to:
+
+> Running builder + successfully published signed routing snapshot
+
+without requiring assistance from a developer.
+
+The guide should be practical, sequential, concise, and reassuring.
+
+Avoid unnecessary jargon.
+
+Use copy-and-paste commands.
+
+Explain what each step accomplishes.
+
+Provide verification after important steps.
+
+Provide clear warnings for secrets.
+
+Provide troubleshooting when something fails.
+
+---
+
+# 24. Final Deliverables
+
+After completing the documentation work:
+
+1. Consolidate related documentation.
+2. Rewrite the builder installation experience.
+3. Update the documentation navigation.
+4. Update all affected internal links.
+5. Remove redundant documentation where appropriate.
+6. Preserve comprehensive technical references.
+7. Ensure the simplified builder guide is the recommended beginner path.
+8. Ensure configuration reference remains comprehensive.
+9. Ensure architecture documentation remains technically detailed.
+10. Ensure there are no contradictory instructions.
+
+Finally, provide a concise implementation report containing:
+
+### Documentation merged
+
+List documents that were consolidated.
+
+### Documentation removed
+
+List documents that became unnecessary.
+
+### Documentation created
+
+List genuinely new documents.
+
+### Documentation rewritten
+
+List major documents significantly rewritten.
+
+### Important discrepancies found
+
+List any differences discovered between existing documentation and the actual implementation.
+
+### Remaining documentation gaps
+
+List anything that could not be documented accurately because the implementation does not currently provide enough information.
+
+Do not modify application code unless a documentation problem reveals a genuine implementation inconsistency that must be reported.

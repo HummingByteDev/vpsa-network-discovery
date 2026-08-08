@@ -11,7 +11,7 @@ derivation, sanity gate, and atomic publish/supersede.
 - Phase 1 dev stack running (`make dev-up`): postgres on host 5433, mockadvisor on 8081.
 - `data/ripe/latest-bview.gz` (pre-downloaded RIS dump).
 - Extracted GeoLite2 City database: `data/geo-data/GeoLite2-City.mmdb`
-  (from the pre-downloaded tarball; in production the builder deployer fetches
+  (from the pre-downloaded tarball; in production the platform operator fetches
   it from MaxMind with their own license key — never redistributed).
 
 ## 1. Run a build

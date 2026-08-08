@@ -24,4 +24,4 @@ docker compose exec -T postgres pg_restore -U vapn -d vapn \
 
 echo "restore ok; restarting services..."
 docker compose up -d coordinator aggregator
-echo "done. verify with: curl -s localhost/healthz and vapnctl status"
+echo "done. verify with: docker compose ps and vapnctl status"

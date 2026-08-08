@@ -44,8 +44,9 @@ flags the worker `unreachable` (an attribute, not a state) for the admin dashboa
 
 Upgrades: worker image is versioned; heartbeat reports version; coordinator may respond
 `upgrade_required` (below min version → drained + refused leases until upgraded).
-Community operators upgrade via `docker pull` / compose; watchtower-style auto-pull is
-documented but optional.
+Community operators upgrade with `vapn update` — health-gated with automatic rollback —
+or unattended via the shipped `vapn-update.timer` (daily, randomized). See
+[operating a worker](../worker/operations.md#updating).
 
 Shutdown: SIGTERM → release leases (`/assignments/release`) → flush upload queue → exit.
 
@@ -58,7 +59,7 @@ Shutdown: SIGTERM → release leases (`/assignments/release`) → flush upload q
    3. parse MRT → candidate prefixes for monitored ASNs only
    4. validate: dedupe, bogon filter, MOAS conflict flagging
    5. enrich: GeoIP (country/city/coords) from the builder's local GeoLite2 copy
-      (fetched from MaxMind with the deployer's own license key)
+      (fetched from MaxMind with the platform operator's own licence key)
    6. load into routing.* under new snapshot version   [status: building]
    7. derive probe targets (representative addresses per prefix)
    8. sanity gate: |Δ prefix_count| vs previous > threshold? → hold for
@@ -72,20 +73,25 @@ Shutdown: SIGTERM → release leases (`/assignments/release`) → flush upload q
   15. retention: prune superseded snapshots’ prefix rows after N versions
 ```
 
-Failure handling: any step failing marks the snapshot `failed` and leaves the previous
+Failure handling: any step failing aborts the build, leaving the new snapshot row in
+`building` (the sanity gate does the same, with exit code 2) and the previous
 `published` version fully in force — publication is atomic from the workers' view.
+Note the implementation never writes the `failed` status the schema allows; an
+abandoned build is simply one that never left `building`.
 Rollback = re-pointing `current` at a prior version (admin action, audited).
 
-Cadence: routing snapshots daily (RIS bview cadence: 8h dumps; daily is enough for
-prefix membership, and routing *churn* signals come from snapshot diffs). The builder's
-GeoLite2 refresh is an independent weekly job (direct MaxMind download, deployer's own
-key — never redistributed; see risk R8) — a GeoIP update never requires a routing
+Cadence: routing snapshots are built three times a day, at 00:30/08:30/16:30 UTC —
+half an hour behind RIS's own 8-hourly bview publication (routing *churn* signals come
+from snapshot diffs). The builder's
+GeoLite2 refresh is an independent job on a 72-hour cycle (direct MaxMind download,
+operator's own key — never redistributed; see risk R8) — a GeoIP update never requires a routing
 rebuild and vice versa.
 
 SQLite artifact contents (worker-facing subset only): `prefixes(prefix, origin_asn,
-provider_id)`, `targets(address, provider_id, assignment hints)`, `meta(version,
-built_at, min_worker_version)`. Workers use it for local validation ("is this target
-still legitimate?") and enrichment — never for choosing targets.
+provider_id, geo_country)`, `targets(address, provider_id, prefix)`, and a `meta`
+key/value table carrying `version` and `min_worker_version`. Workers use it for local
+validation ("is this target still legitimate?") and enrichment — never for choosing
+targets.
 
 ## 3. Provider sync lifecycle
 

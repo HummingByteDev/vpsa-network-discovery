@@ -143,7 +143,7 @@ make check       # vet + test + build
   the registry; the worker binary is published to GitHub releases for
   `install.sh`. The version is stamped via `-ldflags` from `git describe` (see
   the [Makefile](../../Makefile)). Full process and gates:
-  [release management](../operations/release-management.md) and the
+  [releases & upgrades](../operations/releases-and-upgrades.md) and the
   [launch checklist](../operations/launch-checklist.md).
 
 ## Contribution guide

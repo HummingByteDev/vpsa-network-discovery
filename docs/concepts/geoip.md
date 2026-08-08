@@ -78,15 +78,18 @@ nuance a prospective customer cares about ("great provider, but how is it from
 MaxMind's GeoLite2 databases are free but require a **license key** and must not
 be redistributed. Two consequences shape VAPN's design:
 
-- **Each deployer uses their own MaxMind license key.** The project never ships
-  or redistributes the databases. In production the `geoipupdate` container
-  refreshes them with the operator's key; in development, pre-downloaded copies
-  live under `data/geo-data/`. Workers that want a local copy use the
-  *operator's own* key too (optional — geo features degrade gracefully without
-  it). This is tracked as [risk R8](../architecture/08-risk-assessment.md).
+- **Each platform operator uses their own MaxMind licence key.** The project
+  never ships or redistributes the databases. In production the `geoipupdate`
+  container refreshes them with the operator's key; in development,
+  pre-downloaded copies live under `data/geo-data/`. **Community workers need no
+  MaxMind key at all** — the builder does the authoritative enrichment centrally
+  and ships only derived fields inside the signed snapshot artifact, which
+  carries no redistribution constraint. This is
+  [risk R8](../architecture/08-risk-assessment.md), resolved that way
+  deliberately.
 - **GeoIP updates are independent of routing updates.** A GeoIP refresh never
   requires rebuilding a routing snapshot, and vice versa. They're separate jobs
-  on separate cadences (routing daily, GeoIP weekly). This keeps a slow or
+  on separate cadences (routing every 8 h, GeoIP every 72 h). This keeps a slow or
   failed MaxMind download from blocking routing builds and keeps the two
   concerns decoupled. See the
   [snapshot lifecycle](../architecture/06-lifecycles.md#2-snapshot-lifecycle).

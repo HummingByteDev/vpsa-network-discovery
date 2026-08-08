@@ -54,11 +54,12 @@ first-class deliverable (per brief).
 
 **R8 — GeoLite2 licensing/redistribution.** *(Resolved 2026-07-18.)*
 Decision: the platform never redistributes MaxMind databases. Every party that hosts a
-component needing GeoIP (builder deployers; worker operators, optionally) supplies their
-own MaxMind license key and fetches GeoLite2 directly from MaxMind. Workers without a
-key degrade gracefully — geo enrichment for workers is optional since authoritative
-enrichment happens in the builder and ships inside our own snapshot artifact (derived
-fields only, which carries no redistribution constraint).
+component needing GeoIP — in practice only the **platform operator**, for the builder
+(GeoLite2-City) and the coordinator (GeoLite2-ASN) — supplies their own MaxMind licence
+key and fetches GeoLite2 directly from MaxMind. **Community workers need no key**:
+authoritative enrichment happens in the builder and ships inside our own snapshot
+artifact (derived fields only, which carries no redistribution constraint). Accordingly
+the worker reads no MaxMind configuration at all.
 
 **R9 — Clock skew on community hardware.** Signed timestamps + measurement windows
 assume sane clocks. *Mitigations:* server-authoritative `received_at`, skew measured at

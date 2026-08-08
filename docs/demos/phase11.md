@@ -78,13 +78,13 @@ latency headroom.
 Tagging `vX.Y.Z` builds multi-arch (amd64/arm64) images for all six
 components to GHCR and attaches `vapn`/`vapnctl` binaries + `install.sh` +
 checksums to the GitHub release (`.github/workflows/release.yml`).
-Policy: [docs/operations/release-management.md](../operations/release-management.md).
+Policy: [docs/operations/releases-and-upgrades.md](../operations/releases-and-upgrades.md).
 
 ## Paperwork that isn't paperwork
 
-- [Security review](../operations/security-review.md): all 16 threats from
+- [Security threat-matrix verification](../operations/security.md#threat-matrix-verification): all 16 threats from
   the threat matrix traced to mitigations and their tests.
-- [Load testing](../operations/load-testing.md), [launch checklist](../operations/launch-checklist.md),
+- [Load testing](../operations/monitoring.md#load-testing), [launch checklist](../operations/launch-checklist.md),
   [worker guide](../worker/README.md).
 
 ## Also in this phase

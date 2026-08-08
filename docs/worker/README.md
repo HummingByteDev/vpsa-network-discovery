@@ -8,8 +8,8 @@ make VAPN's verdicts trustworthy — no single one is trusted on its own.
 Thank you for considering running one. This section is everything you need,
 from "what is it" to "how do I leave."
 
-> **Just want it running?** → [Quick Start](../getting-started/quickstart.md)
-> (a worker in ~5 minutes). This section is the reference behind it.
+> **Just want it running?** → [Install a worker](installation.md) — about five
+> minutes.
 
 ## What a worker is, in one paragraph
 
@@ -25,20 +25,18 @@ in control**: pause, resume, or remove it whenever you like.
 
 | Guide | What it covers |
 |---|---|
-| [Installation](installation.md) | Requirements and the full install flow (also: [Quick Start](../getting-started/quickstart.md)) |
-| [Command reference](command-reference.md) | Every `vapn` command with examples |
+| [Installation](installation.md) | Requirements, install, verify — plus what actually happens under the hood |
+| [Operating a worker](operations.md) | Every `vapn` command, updating, pausing, backups, leaving |
 | [Worker lifecycle](lifecycle.md) | Every state a worker moves through and why |
 | [Resource usage & privacy](resources-and-privacy.md) | Exactly what it costs you and what it does (and doesn't) see |
-| [Updating](../getting-started/updating.md) | Keeping it current, safely |
-| [Uninstalling](../getting-started/uninstalling.md) | Leaving cleanly |
-| [Troubleshooting](../getting-started/troubleshooting.md) · [FAQ](../getting-started/faq.md) | When something's off |
+| [Troubleshooting & FAQ](troubleshooting.md) | When something's off, and the questions everyone asks |
 
 ## Why run one?
 
 - **Help buyers make better decisions.** Your vantage point adds a real,
   independent data point about provider health from your part of the world.
-- **It's nearly free to run.** A spare VPS or home server has plenty of headroom;
-  see [resource usage](resources-and-privacy.md#resource-usage).
+- **It's nearly free to run.** A spare VPS or home server has plenty of
+  headroom; see [resource usage](resources-and-privacy.md#resource-usage).
 - **It's safe and private by design.** Your worker only probes addresses from a
   signed, platform-provided list, reports nothing about your machine beyond its
   own liveness and version, and your private key never leaves your host. See
@@ -56,7 +54,7 @@ vapn doctor        # re-run the system checks
 vapn uninstall     # remove everything (offers a clean unregister)
 ```
 
-Full details: [command reference](command-reference.md).
+Full details: [Operating a worker](operations.md).
 
 ## How your worker earns its place
 

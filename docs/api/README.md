@@ -148,7 +148,7 @@ request signing on every call except `register` — headers `X-Worker-Id`,
 **`POST /api/v1/workers/heartbeat` → 200 (abridged):**
 ```json
 { "state": "active",
-  "snapshot": { "version": "20260718T0800Z-1" },
+  "snapshot": { "version": "20260718T0800Z-1723118400000" },
   "leases": [ { "assignment_id": 812, "expires_at": "..." } ],
   "control": [ ],
   "config": { "heartbeat_seconds": 30, "upload_seconds": 60 } }

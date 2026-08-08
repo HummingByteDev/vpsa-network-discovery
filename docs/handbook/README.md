@@ -348,7 +348,7 @@ The builder solves one hard, sensitive problem: **produce a trustworthy,
 signed list of exactly which addresses belong to each monitored provider.** Get
 it wrong and workers probe someone else's network.
 
-Each run, on a daily schedule:
+Each run, three times a day:
 
 1. **Sync monitored ASNs** from VPS Advisor.
 2. **Download the RIS `bview`** MRT dump (or use the pre-downloaded dev copy).
@@ -381,7 +381,7 @@ artifact). If a bad snapshot ever slips through, an admin runs
 workers switch to the good version on their next heartbeat.
 
 > Full treatment: [The Routing Builder](../builder/README.md); the run in
-> detail: [snapshot publishing](../walkthroughs/snapshot-publishing.md);
+> detail: [how the builder works](../builder/README.md#one-build-stage-by-stage);
 > the ownership logic: [prefix ownership](../concepts/prefix-ownership.md).
 
 # Chapter 10 — Workers
@@ -577,7 +577,8 @@ Running VAPN day to day is a small, well-defined set of concerns:
   service; `/healthz` and `/readyz` endpoints. Key alerts: snapshot age > 2× its
   cadence, growing publication-outbox depth, a drop in active workers, a rising
   `insufficient_data` ratio, and signature-failure spikes.
-- **Backups.** Nightly base backups + WAL archiving. The registry and aggregation
+- **Backups.** A nightly readback-verified `pg_dump`, retained locally and
+  optionally copied offsite. The registry and aggregation
   data are precious; raw measurements are re-derivable and short-lived.
 - **Upgrades.** Backward-compatible migrations (expand → migrate → contract) let
   coordinator replicas roll; workers tolerate brief coordinator downtime by
@@ -638,8 +639,8 @@ build held for approval (investigate the prefix-count swing before forcing it);
 growing outbox depth (VPS Advisor is rejecting or slow — check for 4xx, which
 signals contract drift).
 
-> Full treatment: [worker troubleshooting](../getting-started/troubleshooting.md),
-> the [FAQ](../getting-started/faq.md), and [operations runbooks](../operations/runbooks.md).
+> Full treatment: [worker troubleshooting & FAQ](../worker/troubleshooting.md)
+> and [operations runbooks](../operations/runbooks.md).
 
 # Chapter 18 — Future Roadmap
 
@@ -673,7 +674,7 @@ thousands of community workers worldwide.
 - **Every setting:** [Configuration](../reference/configuration.md)
 - **Every endpoint:** [API reference](../api/README.md)
 - **Every design decision:** [Architecture](../architecture/README.md)
-- **The friendly on-ramp:** [Getting Started](../getting-started/README.md)
+- **The friendly on-ramp:** [Documentation home](../README.md)
 
 ## Exporting this handbook as a PDF
 
