@@ -695,6 +695,36 @@ docker compose logs builder | grep -A2 'bad configuration'
 `configuration errors: VAPN_ADVISOR_TOKEN, VAPN_SANITY_MAX_DELTA_PCT (not an
 integer: "fifty")` — fix each named variable in `.env` and re-run.
 
+### A service says `(unhealthy)`
+
+**What it usually means:** the service itself is fine and serving traffic — the
+health *probe* is failing. Check the service's own logs before assuming it is
+broken:
+
+```sh
+docker compose logs coordinator | tail -20
+docker inspect --format '{{range .State.Health.Log}}{{.ExitCode}} {{.Output}}{{end}}' vapn-coordinator-1 | tail -3
+```
+
+**Healthy result:** the logs end with `http server listening` and the probe
+exit code is `0`.
+
+An exit code of `127` with `stat /coordinator: no such file or directory` means
+you are running a compose file from before 2026-08-09, which pointed the probe
+at the wrong path — every component's binary is installed at `/app`. Update and
+recreate:
+
+```sh
+cd /opt/vapn && git pull
+cd deploy/prod && docker compose up -d
+```
+
+> Nothing was actually wrong with the service, so nothing was lost. Only the
+> reported status changes.
+
+`provider sync failed` warnings in the log do **not** make a service unhealthy
+— see [below](#the-builder-cannot-reach-vps-advisor-at-all).
+
 ### The database connection fails
 
 **What it usually means:** PostgreSQL isn't up yet, or `VAPN_DB_PASSWORD`
@@ -727,6 +757,57 @@ the platform appends `/api/v1/monitoring/providers` itself.
 `ASN … claimed by two providers` is a data problem on the VPS Advisor side, not
 yours. The builder refuses to guess which provider owns an address range;
 report it to the website team.
+
+### The builder cannot reach VPS Advisor at all
+
+**What it usually means:** the website integration isn't live yet, so there is
+no token to issue and the endpoint 404s.
+
+**This is a hard stop, by design.** Provider sync is the *first* stage of the
+build ([how the builder works](README.md)), and a failure there aborts the run
+with exit code 1 before anything is downloaded or written:
+
+```
+provider sync: advisor returned 404
+```
+
+The builder will not fall back to a guessed provider list — the ASN-to-provider
+mapping is what defines which networks the fleet is permitted to probe, and
+probing networks nobody has consented to is exactly what the platform must
+never do.
+
+Until the website team issues a real token, you can still exercise the whole
+pipeline against the fixture-backed stub that ships with the project. It serves
+five real provider ASNs, so the build is genuine — only the provider list is
+mocked:
+
+```sh
+cd /opt/vapn
+docker build --build-arg COMPONENT=mockadvisor -t vapn-mockadvisor .
+docker run -d --name mockadvisor --network vapn_default --restart unless-stopped \
+  vapn-mockadvisor
+```
+
+> This builds the stub and attaches it to the same network as the rest of the
+> stack, where the other services can reach it by the name `mockadvisor`.
+
+Point the stack at it and run a build:
+
+```sh
+cd /opt/vapn/deploy/prod
+sed -i 's|^VAPN_ADVISOR_URL=.*|VAPN_ADVISOR_URL=http://mockadvisor:8081|' .env
+sed -i 's|^VAPN_ADVISOR_TOKEN=.*|VAPN_ADVISOR_TOKEN=dev-advisor-token|' .env
+docker compose up -d
+docker compose run --rm builder
+```
+
+**Healthy result:** `provider sync complete asns=5`, then the build proceeds
+through extraction and publication exactly as it will in production.
+
+> ⚠️ **Remember to undo this before going live.** Snapshots built against the
+> stub describe five example providers, not your real ones. Restore the real
+> `VAPN_ADVISOR_URL` and token, `docker rm -f mockadvisor`, and rebuild before
+> enrolling any community workers.
 
 ### The routing download fails
 
@@ -886,19 +967,15 @@ which cover the same failures from an on-call perspective.
 
 ### Testing without VPS Advisor
 
-If the website integration isn't ready, run the stub that ships with the
-project instead. From the repository root, use the development stack:
+If the website integration isn't ready, point your production stack at the
+fixture-backed stub — see
+[the builder cannot reach VPS Advisor at all](#the-builder-cannot-reach-vps-advisor-at-all)
+above for the procedure. That keeps the real stack, the real RIS data, and the
+real publication path; only the provider list is mocked.
 
-```sh
-cd /opt/vapn
-make dev-up          # postgres, minio, mockadvisor, coordinator, aggregator, workers
-make build && ./bin/keygen     # requires Go; export both printed variables
-docker compose -f deploy/compose/dev.compose.yaml --profile build run --rm builder
-```
-
-This runs the full build pipeline offline against pre-downloaded routing and
-location data in `data/`, with a fixture-backed VPS Advisor. It is the same
-code path, so it is a genuine rehearsal. Details:
+There is also a full offline development stack (`make dev-up`), but it expects
+a pre-populated `data/` directory of routing and location files that is **not**
+part of the repository, so it is not a shortcut on a fresh server. Details:
 [Development](../development/README.md).
 
 ### Where to go next

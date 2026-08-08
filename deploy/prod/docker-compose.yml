@@ -79,7 +79,8 @@ services:
     volumes:
       - ${VAPN_GEOIP_DIR:-./geoip}:/geoip:ro
     healthcheck:
-      test: ["CMD", "/coordinator", "-healthcheck"]
+      # The Dockerfile installs every component's binary at /app, not /<component>.
+      test: ["CMD", "/app", "-healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 4
@@ -98,7 +99,7 @@ services:
       VAPN_ADVISOR_URL: ${VAPN_ADVISOR_URL}
       VAPN_ADVISOR_TOKEN: ${VAPN_ADVISOR_TOKEN}
     healthcheck:
-      test: ["CMD", "/aggregator", "-healthcheck"]
+      test: ["CMD", "/app", "-healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 4
