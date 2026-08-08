@@ -344,6 +344,14 @@ docker compose up -d
 > takes a few minutes. Database migrations run automatically before the
 > services start.
 
+> ⚠️ **Until the first public release is tagged, expect a `denied` line for
+> every image**, like `ghcr.io/hummingbytedev/vapn-coordinator:latest error
+> from registry: denied`. This is normal and not a problem with your setup —
+> the published images do not exist yet, and **you do not need a Docker or
+> GitHub account**. Compose falls back to building each image from the source
+> you just cloned, which is why the next line says `Building`. The first build
+> takes several minutes; afterwards the images are cached locally.
+
 Now download the location databases, which the builder needs:
 
 ```sh
@@ -595,6 +603,12 @@ docker compose up -d
 > `sed` line selects the release, and `docker compose pull && up -d` restarts
 > the services on it. Database migrations run automatically first.
 
+> **Before the first release is tagged** there is nothing to pull, so leave
+> `VAPN_VERSION=latest` alone and rebuild from the source instead:
+> `git pull && docker compose up -d --build`. Add `--build` to the builder run
+> in Step 6 as well, otherwise it keeps using the image cached from the old
+> source.
+
 ### Verify
 
 ```sh
@@ -734,6 +748,20 @@ docker compose run --rm builder
 
 A partial download never corrupts anything: the file is written to a temporary
 name and only moved into place once complete.
+
+If the error instead reads `open /work/.bview-…: permission denied`, the
+builder cannot write to its own work volume. This affected images built before
+2026-08-09; rebuild and discard the empty volume:
+
+```sh
+docker compose down
+docker volume rm vapn_builder_work
+docker compose build builder
+docker compose run --rm builder
+```
+
+> The volume only holds the downloadable bview cache, so removing it loses
+> nothing — the next run re-downloads it.
 
 ### The location database is missing
 

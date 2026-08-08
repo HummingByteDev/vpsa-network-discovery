@@ -11,6 +11,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 ARG VERSION=dev
 ARG COMMIT=unknown
+RUN mkdir -p /out/work
 RUN CGO_ENABLED=0 go build \
       -ldflags "-s -w \
         -X github.com/HummingByteDev/vpsa-network-discovery/internal/platform/version.Version=${VERSION} \
@@ -22,5 +23,10 @@ ARG COMPONENT
 COPY --from=build /out/app /app
 # migrate needs the SQL files alongside the binary
 COPY migrations/ /migrations/
+# Scratch space for the builder's RIS bview download. Production mounts a named
+# volume here; Docker seeds a fresh volume from the image, so the directory must
+# exist AND be owned by the distroless nonroot user (65532) or the first build
+# fails with "open /work/.bview-*: permission denied".
+COPY --from=build --chown=65532:65532 /out/work/ /work/
 ENV VAPN_MIGRATIONS_DIR=/migrations
 ENTRYPOINT ["/app"]
