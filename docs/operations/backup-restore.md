@@ -18,11 +18,30 @@ workers.
 `deploy/prod/scripts/backup.sh` (installed as `vapn-backup.timer`, nightly
 03:15 UTC): compressed custom-format `pg_dump`, readback-verified with
 `pg_restore --list`, local retention 14 dumps, optional offsite copy via
-`VAPN_BACKUP_S3_URI`. **Configure the offsite copy** — a backup on the same
-disk as the database is a convenience, not a backup.
+`VAPN_BACKUP_S3_URI`.
+
+**Configure the offsite copy** — a backup on the same disk as the database is a
+convenience, not a backup.
+
+> ⚠️ **`VAPN_BACKUP_S3_URI` in `.env` is ignored by the timer.** The script
+> reads it from its process environment and `vapn-backup.service` has no
+> `EnvironmentFile=`, so the nightly run never sees it. Set it on the unit:
+>
+> ```sh
+> sudo systemctl edit vapn-backup.service
+> ```
+> ```ini
+> [Service]
+> Environment=VAPN_BACKUP_S3_URI=s3://your-bucket/vapn-backups
+> ```
+>
+> Then verify a scheduled run actually copies offsite — the script prints
+> `offsite copy ok: …` on success. The `aws` or `mc` CLI must be configured for
+> root, the user the timer runs as.
 
 Manual run: `sudo systemctl start vapn-backup.service` or
-`scripts/backup.sh /path/out`.
+`VAPN_BACKUP_S3_URI=s3://… ./scripts/backup.sh /path/out` (invoked by hand, the
+environment works normally).
 
 ## Restore
 

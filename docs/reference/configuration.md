@@ -252,8 +252,10 @@ and the [installation guide's key step](../builder/installation.md#step-3--gener
 
 ## Edge & deployment (consumed by Compose/Caddy, not the services)
 
-These appear in `deploy/prod/.env` and are read by the compose file, the
-Caddyfile, or the backup script — not by any Go service.
+These appear in `deploy/prod/.env` and are read by the compose file or the
+Caddyfile at startup — not by any Go service. (The backup script's variables
+look similar but are **not** read from `.env`; see
+[below](#backup-script-variables--not-read-from-env).)
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -266,15 +268,71 @@ Caddyfile, or the backup script — not by any Go service.
 | `MAXMIND_ACCOUNT_ID` | — | MaxMind account (note: **no** `VAPN_` prefix) |
 | `MAXMIND_LICENSE_KEY` | — | MaxMind licence key (secret; no `VAPN_` prefix) |
 | `VAPN_GRAFANA_PASSWORD` | `admin` | Grafana admin password (monitoring profile) |
+
+### Backup script variables — **not** read from `.env`
+
+`scripts/backup.sh` reads these from its **process environment**, and the
+shipped `vapn-backup.service` has no `EnvironmentFile=`. Putting them in
+`deploy/prod/.env` therefore has **no effect on the scheduled backup**. Set them
+on the unit instead:
+
+```sh
+sudo systemctl edit vapn-backup.service
+```
+```ini
+[Service]
+Environment=VAPN_BACKUP_S3_URI=s3://your-bucket/vapn-backups
+Environment=VAPN_BACKUP_KEEP=14
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `VAPN_BACKUP_KEEP` | `14` | Dumps `scripts/backup.sh` retains locally |
-| `VAPN_BACKUP_S3_URI` | — | Optional offsite destination for backups, e.g. `s3://bucket/vapn-backups` |
+| `VAPN_BACKUP_S3_URI` | — | Offsite destination, e.g. `s3://bucket/vapn-backups`. Also needs an `aws` or `mc` CLI configured for the user the timer runs as (root) |
+
+They *do* work as expected when you invoke the script by hand:
+`VAPN_BACKUP_S3_URI=s3://… ./scripts/backup.sh`.
 
 ## How it's set in each environment
 
 - **Dev:** [`deploy/compose/dev.compose.yaml`](../../deploy/compose/dev.compose.yaml)
-  sets everything inline; pre-downloaded `data/` is mounted so no external fetch
-  is needed. Export `VAPN_SNAPSHOT_SIGNING_KEY` and `VAPN_SNAPSHOT_PUBLIC_KEY`
-  from `./bin/keygen` before bringing it up.
+  sets almost everything inline — postgres, MinIO, and the mockadvisor endpoints
+  are literals — and pre-downloaded `data/` is mounted so no external fetch is
+  needed.
+
+  > ⚠️ **The two snapshot keys are the exception, and they fail quietly.** They
+  > are the only builder/worker settings taken from interpolation:
+  >
+  > ```yaml
+  > VAPN_SNAPSHOT_SIGNING_KEY: ${VAPN_SNAPSHOT_SIGNING_KEY:-}   # builder
+  > VAPN_SNAPSHOT_PUBLIC_KEY:  ${VAPN_SNAPSHOT_PUBLIC_KEY:-}    # workers
+  > ```
+  >
+  > The `:-` default substitutes an **empty string** rather than failing, so a
+  > build starts, connects to MinIO, and only then dies with
+  > `signing key seed must be 32 bytes, got 0`. Workers fail earlier, with
+  > `bad configuration: VAPN_SNAPSHOT_PUBLIC_KEY`.
+  >
+  > Compose reads interpolated values from your **shell** or from a `.env` in
+  > the *project directory* (next to the compose file, or your working
+  > directory) — **not** from an env file elsewhere in the repo. So either
+  > export them:
+  >
+  > ```sh
+  > eval "$(./bin/keygen | sed 's/^/export /')"
+  > docker compose -f deploy/compose/dev.compose.yaml --profile build run --rm builder
+  > ```
+  >
+  > …or keep them in a file and pass it on **every** compose command, `up`
+  > included:
+  >
+  > ```sh
+  > docker compose --env-file path/to/.env \
+  >   -f deploy/compose/dev.compose.yaml --profile build run --rm builder
+  > ```
+  >
+  > Confirm before you run anything: `docker compose … config | grep SNAPSHOT`
+  > shows the resolved values.
 - **Production:** [`deploy/prod/.env.example`](../../deploy/prod/.env.example)
   plus `docker-compose.yml`; secrets live in `.env` (chmod 600) outside version
   control, or in a secrets manager. Walkthrough:
