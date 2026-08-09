@@ -56,6 +56,7 @@ cd /opt/vapn/deploy/prod
 git pull                                             # compose/config changes, if any
 sed -i 's/^VAPN_VERSION=.*/VAPN_VERSION=v1.3.0/' .env
 docker compose pull
+docker compose pull builder                          # profiled: pull skips it otherwise
 docker compose up -d                                 # migrate runs first; services follow
 docker compose ps                                    # all healthy?
 vapnctl status                                       # fleet unaffected?
@@ -65,8 +66,19 @@ Zero-downtime notes: workers buffer observations through the seconds of
 coordinator restart, so nothing is lost. Migrations run under an advisory lock —
 a second `up -d` is always safe.
 
-The builder needs no separate ceremony: it is a scheduled one-shot job, so the
-next timer firing simply runs the new image.
+**Do not omit the second `pull`.** The builder lives in the `build` compose
+profile, and profiled services are excluded from bare `pull` and `up -d` —
+naming the service is what enables its profile. Miss it and the builder keeps
+running the old image indefinitely while every other component moves forward,
+which is a difficult failure to spot: snapshots keep publishing, just from
+stale code. Confirm after upgrading with:
+
+```sh
+docker images --format '{{.Repository}}:{{.Tag}}  {{.CreatedSince}}' | grep vapn-builder
+```
+
+(`docker compose images builder` reports nothing useful here — it lists images
+belonging to *containers*, and the builder has none between runs.)
 
 ### Order of operations for risky releases
 

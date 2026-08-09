@@ -587,27 +587,44 @@ between runs is correct.
 ## Step 9 — Keep it up to date
 
 The builder is a container image, so updating it is part of updating the
-platform. There is no separate builder update procedure — the next scheduled
-run simply uses the new image.
+platform. Once its image is updated, the next scheduled run picks it up
+automatically.
+
+> ⚠️ **The builder must be updated explicitly.** It sits in the `build` compose
+> profile because it is a scheduled job rather than a running service, and both
+> `docker compose pull` and `docker compose up -d` skip profiled services
+> entirely. Neither command will ever touch the builder image, so a builder left
+> to those two commands stays on the version you first installed — silently,
+> and possibly for months. Always name it.
 
 ```sh
 cd /opt/vapn
 git pull
 cd deploy/prod
 sed -i 's/^VAPN_VERSION=.*/VAPN_VERSION=v1.3.0/' .env    # the release you want
-docker compose pull
+docker compose pull                  # the running services
+docker compose pull builder          # the builder, which the line above skipped
 docker compose up -d
 ```
 
 > `git pull` picks up changes to the compose and configuration files, the
-> `sed` line selects the release, and `docker compose pull && up -d` restarts
-> the services on it. Database migrations run automatically first.
+> `sed` line selects the release, and the two `pull` commands fetch it.
+> Naming `builder` explicitly is what enables its profile. Database migrations
+> run automatically before the services restart.
 
-> **Before the first release is tagged** there is nothing to pull, so leave
-> `VAPN_VERSION=latest` alone and rebuild from the source instead:
-> `git pull && docker compose up -d --build`. Add `--build` to the builder run
-> in Step 6 as well, otherwise it keeps using the image cached from the old
-> source.
+**Before the first release is tagged** there is nothing to pull, so leave
+`VAPN_VERSION=latest` alone and rebuild from source instead:
+
+```sh
+cd /opt/vapn && git pull
+cd deploy/prod
+docker compose up -d --build         # the running services
+docker compose build builder         # the builder, again separately
+docker compose run --rm builder
+```
+
+> `docker compose run` does **not** rebuild an image that already exists, so
+> without the `build builder` line your next build silently runs the old code.
 
 ### Verify
 
