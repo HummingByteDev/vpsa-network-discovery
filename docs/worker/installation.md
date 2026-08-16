@@ -202,18 +202,21 @@ sequenceDiagram
 
   U->>S: Create worker (My Workers)
   S-->>U: One-time enrollment token
-  U->>I: run install.sh + paste token
-  I->>I: system checks (Docker, disk, key, coordinator, clock)
-  I->>W: generate compose file, start container
-  W->>W: generate Ed25519 keypair (private key stays local)
-  W->>C: POST /register (token + public key + facts)
-  C->>S: verify token hash against pending enrollment
+  U->>I: Run install.sh and paste token
+  I->>I: System checks (Docker, disk, key, coordinator, clock)
+  I->>W: Generate compose file and start container
+  W->>W: Generate Ed25519 keypair
+  W->>C: POST /register (token, public key, facts)
+  C->>S: Verify token hash against pending enrollment
   C-->>W: worker_id, state = pending
-  Note over W,C: worker heartbeats; no work until approved
+
+  Note over W,C: Worker heartbeats, but no work is assigned until approved
+
   U->>S: Admin approves worker
-  S-->>C: decision synced (state = active)
-  C-->>W: next heartbeat: active + snapshot version
-  W->>W: download + verify snapshot, lease work, probe
+  S-->>C: Sync decision (state = active)
+  C-->>W: Next heartbeat returns active state and snapshot version
+  W->>W: Download and verify snapshot
+  W->>W: Lease work and run probe
 ```
 
 1. **The operator creates the worker on VPS Advisor.** The website generates a
