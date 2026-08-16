@@ -31,6 +31,7 @@ const adminToken = "test-admin"
 type env struct {
 	pool    *pgxpool.Pool
 	reg     *registry.Store
+	api     *Server // the same instance srv serves, for SyncAdvisor in tests
 	srv     *httptest.Server
 	signKey ed25519.PrivateKey
 	version string
@@ -122,7 +123,7 @@ func setup(t *testing.T, devToken string) *env {
 		MaxAssignmentsPerWorker: 12}, reg, store, log)
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
-	return &env{pool: pool, reg: reg, srv: srv, signKey: signKey, version: version}
+	return &env{pool: pool, reg: reg, api: api, srv: srv, signKey: signKey, version: version}
 }
 
 func newAgent(t *testing.T, e *env, token string) (*worker.Agent, worker.State) {

@@ -61,7 +61,7 @@ keep this CLI's access network-restricted.
 
 | Command | Description |
 |---|---|
-| `status` | Fleet overview |
+| `status` | Fleet overview, including per-feed VPS Advisor sync health |
 | `workers list` | List workers |
 | `workers show <id>` | Worker detail (state, trust, leases, events) |
 | `workers create --name N` | Create a worker; prints a one-time enrollment token |
@@ -87,6 +87,9 @@ vapnctl workers approve 9f30… --reason "verified operator"
 
 # Investigate a worker
 vapnctl workers show 9f30…                       # state, trust, leases, events
+
+# A worker approved on the website is still reporting "awaiting approval"
+vapnctl status                                    # read the "Advisor decisions" line
 
 # Emergency: stop all probing fleet-wide
 vapnctl scheduler pause                           # …later… vapnctl scheduler resume

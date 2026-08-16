@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -24,12 +26,22 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, o
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("advisor request: %w", err)
+		return fmt.Errorf("advisor request %s%s: %w", c.BaseURL(), path, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	// Redirects are refused rather than followed (see New): report where the
+	// hop went, because that address — not the configured one — is what the
+	// site actually serves the contract on.
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("advisor %s %s%s: %s redirects to %q — "+
+			"set VAPN_ADVISOR_URL to the address the site answers on "+
+			"(a redirect drops the Authorization header, so it cannot be followed)",
+			method, c.BaseURL(), path, resp.Status, resp.Header.Get("Location"))
+	}
+	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("advisor %s %s: %s: %s", method, path, resp.Status, string(raw))
+		return fmt.Errorf("advisor %s %s%s: %s: %s", method, c.BaseURL(), path,
+			resp.Status, strings.TrimSpace(string(raw)))
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -65,13 +77,8 @@ type PendingEnrollment struct {
 }
 
 func (c *Client) ListPendingEnrollments(ctx context.Context) ([]PendingEnrollment, error) {
-	var body struct {
-		Enrollments []PendingEnrollment `json:"enrollments"`
-	}
-	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/monitoring/enrollments/pending", nil, &body); err != nil {
-		return nil, err
-	}
-	return body.Enrollments, nil
+	return fetchPages[PendingEnrollment](ctx, c,
+		"/api/v1/monitoring/enrollments/pending", "enrollments")
 }
 
 func (c *Client) MarkEnrollmentRegistered(ctx context.Context, enrollmentID string) error {
@@ -88,13 +95,17 @@ type Decision struct {
 	DecidedAt  time.Time `json:"decided_at"`
 }
 
+// ListDecisions returns every decision the site recorded after since, oldest
+// first, walking the cursor to the end of the feed.
+//
+// A zero since omits the parameter and asks for the whole feed. That is the
+// deliberate startup behaviour: decisions apply idempotently, so replaying
+// them costs nothing, while a cursor guessed from the local clock can skip an
+// approval the site recorded on the far side of any clock difference.
 func (c *Client) ListDecisions(ctx context.Context, since time.Time) ([]Decision, error) {
-	path := "/api/v1/monitoring/admin/decisions?since=" + since.UTC().Format(time.RFC3339)
-	var body struct {
-		Decisions []Decision `json:"decisions"`
+	path := "/api/v1/monitoring/admin/decisions"
+	if !since.IsZero() {
+		path += "?since=" + url.QueryEscape(since.UTC().Format(time.RFC3339Nano))
 	}
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, &body); err != nil {
-		return nil, err
-	}
-	return body.Decisions, nil
+	return fetchPages[Decision](ctx, c, path, "decisions")
 }

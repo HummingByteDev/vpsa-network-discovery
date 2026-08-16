@@ -59,8 +59,12 @@ func main() {
 	go engine.Run(ctx)
 
 	if advisorURL != "" {
-		pub := &publisher.Publisher{Pool: pool,
-			Client: advisor.New(advisorURL, advisorToken), Log: log}
+		client := advisor.New(advisorURL, advisorToken)
+		if err := client.Validate(); err != nil {
+			log.Error("VPS Advisor URL is misconfigured; results will not publish",
+				"advisor_url", client.BaseURL(), "error", err)
+		}
+		pub := &publisher.Publisher{Pool: pool, Client: client, Log: log}
 		go pub.Run(ctx, 15*time.Second, 5*time.Minute)
 	} else {
 		log.Warn("no VPS Advisor endpoint configured; publication outbox will accumulate")

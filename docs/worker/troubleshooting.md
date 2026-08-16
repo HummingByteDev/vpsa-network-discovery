@@ -16,6 +16,7 @@ Platform-side operator troubleshooting is in
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Stuck at **`Awaiting approval`** | Approval is a manual, human step | Check your VPS Advisor dashboard; nothing to do worker-side |
+| **`Awaiting approval` *after* an admin approved it** | The approval has not reached the coordinator | Not fixable worker-side — [see below](#awaiting-approval-after-being-approved) |
 | **`Unreachable (last report …)`** in status | Worker crashed, host offline, or egress blocked | `vapn logs`, then `vapn doctor` |
 | **`no status report yet`** | Container still starting, or it failed to boot | `vapn logs -f` — a config error is printed on the first lines |
 | **Clock check fails** | No NTP; signed requests are time-bound | `sudo timedatectl set-ntp true` |
@@ -58,6 +59,37 @@ Platform-side operator troubleshooting is in
    refusal means egress filtering.
 
 ## Specific situations
+
+### "Awaiting approval" after being approved
+
+The dashboard says approved, and your worker still logs `awaiting approval`.
+
+**This is not your worker's fault, and restarting it will not help.** Your
+worker asks the coordinator for its state on every heartbeat and reports the
+answer verbatim — it caches nothing and assumes nothing. If it still says
+pending, the coordinator still says pending.
+
+Approval travels by *pull*: the website records the decision, and the platform
+fetches new decisions roughly every two minutes. When that fetch is broken —
+a misconfigured address, an expired service credential, a network path — the
+website and the platform hold different states, with the dashboard showing the
+newer one.
+
+Confirm it from your side and then report it:
+
+```sh
+vapn status
+```
+
+If the worker has a recent heartbeat and reports `Awaiting approval`, it is
+healthy and connected. Send the platform operator your **worker ID** (shown in
+`vapn status`) and the time you were approved; the fix is on the platform, in
+[runbooks → approved-worker-stuck-pending](../operations/runbooks.md#approved-worker-stuck-pending).
+
+Nothing is lost while this is being fixed. Once the platform catches up, it
+applies every decision it missed, your worker picks it up on its next
+heartbeat, and its logs show `worker approval detected`. You do not need to
+reinstall, re-enrol, or regenerate a token.
 
 ### "Snapshot verification keeps failing"
 

@@ -56,6 +56,7 @@ type Server struct {
 	store    artifact.Store
 	audit    *audit.Logger
 	paused   atomic.Bool // global assignment kill switch
+	advisor  advisorHealth
 	log      *slog.Logger
 	handler  http.Handler
 	manifest struct {

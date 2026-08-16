@@ -51,8 +51,29 @@ Read by more than one service.
 | `VAPN_DB_WAIT` | duration | `60s` | How long to wait for the database to become reachable at boot |
 | `VAPN_HTTP_ADDR` | string | varies | Listen address — `:8080` coordinator, `:8082` aggregator, `:8081` mockadvisor |
 | `VAPN_LOG_LEVEL` | string | `info` | `debug` \| `info` \| `warn` \| `error`. Anything else is treated as `info` |
-| `VAPN_ADVISOR_URL` | string | see per-service | VPS Advisor **base** URL. Must have no path — the client appends `/api/v1/monitoring/...` itself |
+| `VAPN_ADVISOR_URL` | string | see per-service | VPS Advisor **base** URL. Must have no path and must not redirect — see below |
 | `VAPN_ADVISOR_TOKEN` | string (secret) | see per-service | Service credential for the VPS Advisor API |
+
+**`VAPN_ADVISOR_URL` must be the exact address the site answers on.** Two
+mistakes account for nearly every "the platform can't see the website" report,
+and both are checked at startup — the affected service logs the error and the
+URL it would call:
+
+- **A path.** `https://site.example/api` becomes
+  `https://site.example/api/api/v1/monitoring/...` and 404s, because the client
+  appends `/api/v1/monitoring/...` itself. Give the bare address.
+- **A redirect.** If `https://www.site.example` 301s to `https://site.example`
+  (or the reverse), the platform will **not** follow it: a redirect across
+  hosts strips the `Authorization` header, so following one turns every
+  authenticated pull into an anonymous 401 that looks like a bad credential.
+  Configure the address the site serves directly.
+
+Everything the platform learns from VPS Advisor flows through this one value —
+the provider catalog every build starts from, worker enrolments, and
+administrator approvals. A wrong value therefore shows up as three seemingly
+unrelated faults at once: no snapshots published, workers that never appear,
+and approved workers stuck `pending`. Check it first with `vapnctl status`,
+which reports each feed's health.
 
 ### Artifact store (`VAPN_ARTIFACT_*`)
 

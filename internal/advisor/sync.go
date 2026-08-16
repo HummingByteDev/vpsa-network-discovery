@@ -55,7 +55,7 @@ func SyncProviders(ctx context.Context, pool *pgxpool.Pool, c *Client) (map[uint
 	}
 	if _, err := tx.Exec(ctx, `
 		update routing.provider set delisted_at = now()
-		where delisted_at is null and not (provider_id = any($1::uuid[]))`, ids); err != nil {
+		where delisted_at is null and not (provider_id = any($1::text[]))`, ids); err != nil {
 		return nil, err
 	}
 	return asnToProvider, tx.Commit(ctx)

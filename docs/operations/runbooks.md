@@ -43,6 +43,51 @@ lost, published verdicts just lag.
    `vapnctl snapshots rollback <previous-version>` — workers converge on
    their next heartbeat.
 
+## approved-worker-stuck-pending
+
+An operator approved a worker on VPS Advisor, the website shows it approved,
+and the worker keeps logging `awaiting approval`.
+
+**What this always means:** the coordinator never received the decision.
+Approval is a *pull* — the website records a decision and the coordinator
+fetches it about every two minutes ([integration §4.3](../integration/django-integration.md#43-admin-decisions)).
+The worker is not caching anything: it asks on every heartbeat and reports
+whatever the coordinator's database says. So the break is between the website
+and the coordinator, never between the coordinator and the worker.
+
+1. `vapnctl status` — read the **Advisor decisions** line. `FAILING` names the
+   error directly; that error is the whole diagnosis.
+2. `docker compose logs --since 15m coordinator | grep -i advisor`. The
+   coordinator logs the base URL it is calling with every failure, plus
+   `workers are waiting on approvals that cannot be fetched` while any worker
+   is pending.
+3. Match the error:
+   - **404, or `redirects to …`** → `VAPN_ADVISOR_URL` is wrong. It must be the
+     **bare site address with no path** — the client appends
+     `/api/v1/monitoring/...` itself. A trailing `/api` produces
+     `/api/api/v1/...`; a `www.` host that redirects to the apex (or the other
+     way) cannot be followed at all, because a redirect drops the
+     `Authorization` header. Set it to the address the site answers on
+     directly.
+   - **401** → `VAPN_ADVISOR_TOKEN` is not a credential the website accepts.
+     Re-issue it from the website's platform-credential screen.
+   - **connection refused / timeout** → network path or DNS from the
+     coordinator host. Check from inside the container:
+     `docker compose exec coordinator wget -qO- $VAPN_ADVISOR_URL/api/v1/monitoring/providers`
+4. Fix the value in `.env`, then `docker compose up -d coordinator`. The first
+   pass after start asks for the **whole** decision feed, so every approval
+   made while it was broken applies at once — no re-approval, no reinstall.
+5. Confirm: `vapnctl workers list` shows the worker `active`, and its logs show
+   `worker approval detected` within one heartbeat interval (30 s default).
+
+> The same misconfiguration also stops the builder — every build begins with a
+> provider sync — so an empty artifact bucket alongside stuck approvals is one
+> fault, not two. See [snapshot-build-failure](#snapshot-build-failure).
+
+**Prometheus:** `vapn_advisor_sync_last_success_timestamp_seconds{feed="decisions"}`
+going stale is the alertable signal; `vapn_advisor_sync_total{outcome="error"}`
+counts the failures.
+
 ## outbox-backlog
 
 Pushes to VPS Advisor failing; backoff caps at 5 min per row, nothing is

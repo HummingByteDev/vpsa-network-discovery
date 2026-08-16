@@ -38,6 +38,19 @@ var (
 		Help: "Security/trust events recorded, by type.",
 	}, []string{"type"})
 
+	// VPS Advisor synchronization (coordinator). A worker approved on the
+	// website only becomes active here once the decisions feed succeeds, so a
+	// stalled `last_success` on that feed is the signal behind "the site says
+	// approved and the worker says pending".
+	AdvisorSync = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "vapn_advisor_sync_total",
+		Help: "VPS Advisor synchronization passes, by feed and outcome.",
+	}, []string{"feed", "outcome"})
+	AdvisorSyncLastSuccess = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vapn_advisor_sync_last_success_timestamp_seconds",
+		Help: "Unix time of the last successful VPS Advisor sync, by feed.",
+	}, []string{"feed"})
+
 	// Aggregator.
 	WindowsComputed = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "vapn_consensus_windows_total",

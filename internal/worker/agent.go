@@ -28,9 +28,24 @@ type Agent struct {
 	client *Client
 	log    *slog.Logger
 
+	// lastState is the coordinator state reported by the previous heartbeat,
+	// so a transition can be logged as an event rather than inferred from a
+	// repeating line. Empty before the first heartbeat of this process.
+	lastState string
+	// waitingSince/lastWaitLog throttle the "awaiting approval" reminder: it
+	// says something the first time and then every waitingReminder, instead of
+	// once per heartbeat where a real state change scrolls past unnoticed.
+	waitingSince time.Time
+	lastWaitLog  time.Time
+
 	executor     *Executor
 	executorStop context.CancelFunc
 }
+
+// waitingReminder is how often an unapproved worker restates that it is
+// waiting. Long enough not to bury anything, short enough that a fresh
+// `vapn logs` shows why the worker is idle.
+const waitingReminder = 10 * time.Minute
 
 func NewAgent(cfg AgentConfig, log *slog.Logger) (*Agent, error) {
 	st := State{Dir: cfg.StateDir}
@@ -103,8 +118,30 @@ func (a *Agent) register(ctx context.Context) error {
 	if err := a.state.SaveWorkerID(resp.WorkerID); err != nil {
 		return err
 	}
-	a.log.Info("registered", "worker_id", resp.WorkerID, "state", resp.State)
+	a.log.Info("worker registered", "worker_id", resp.WorkerID, "state", resp.State)
 	return nil
+}
+
+// noteState makes lifecycle changes explicit in the log. The coordinator's
+// answer to every heartbeat is the worker's state, and an operator waiting on
+// an approval needs to see the moment it lands — not to infer it from a line
+// that stopped appearing.
+func (a *Agent) noteState(state string) {
+	if state == a.lastState {
+		return
+	}
+	switch {
+	case a.lastState == "":
+		a.log.Info("worker state", "state", state)
+	case a.lastState == "pending" && state == "active":
+		a.log.Info("worker approval detected", "from", a.lastState, "state", state)
+	default:
+		a.log.Info("worker state changed", "from", a.lastState, "state", state)
+	}
+	a.lastState = state
+	if state != "pending" {
+		a.waitingSince, a.lastWaitLog = time.Time{}, time.Time{}
+	}
 }
 
 func (a *Agent) tick(ctx context.Context) {
@@ -114,9 +151,10 @@ func (a *Agent) tick(ctx context.Context) {
 		return
 	}
 	a.writeStatus(hb.State)
+	a.noteState(hb.State)
 	switch hb.State {
 	case "pending":
-		a.log.Info("awaiting approval")
+		a.noteWaiting()
 		return
 	case "active", "quarantined":
 	default:
@@ -142,6 +180,28 @@ func (a *Agent) tick(ctx context.Context) {
 		go a.executor.Run(execCtx)
 		a.log.Info("probe executor started")
 	}
+}
+
+// noteWaiting restates that the worker is unapproved: once when the wait
+// starts, then every waitingReminder. The worker keeps heartbeating throughout
+// — approval is detected on the next beat after an admin grants it, with no
+// restart and no reinstall.
+func (a *Agent) noteWaiting() {
+	now := time.Now()
+	if a.waitingSince.IsZero() {
+		a.waitingSince = now
+		a.lastWaitLog = now
+		a.log.Info("awaiting approval",
+			"detail", "an administrator must approve this worker on VPS Advisor; "+
+				"it will start measuring automatically once they do")
+		return
+	}
+	if now.Sub(a.lastWaitLog) < waitingReminder {
+		return
+	}
+	a.lastWaitLog = now
+	a.log.Info("still awaiting approval",
+		"waiting_for", now.Sub(a.waitingSince).Round(time.Minute).String())
 }
 
 // writeStatus refreshes <state>/status.json — the contract with the host

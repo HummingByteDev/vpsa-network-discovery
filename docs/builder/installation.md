@@ -766,10 +766,21 @@ docker compose logs builder | grep -i advisor
 ```
 
 **Healthy result:** `provider sync complete asns=N` with N greater than zero.
-`advisor returned 401` means the token is wrong or expired — ask the website
-team for a fresh one. `advisor returned 404` almost always means
-`VAPN_ADVISOR_URL` includes a path: it must be the bare site address, because
-the platform appends `/api/v1/monitoring/providers` itself.
+Every error names the URL it called, so compare that against the address the
+site actually answers on:
+
+- `401` — the token is wrong or expired; ask the website team for a fresh one.
+- `404` — `VAPN_ADVISOR_URL` includes a path. It must be the bare site address,
+  because the platform appends `/api/v1/monitoring/providers` itself.
+- `… redirects to "https://…"` — the configured host redirects (typically
+  `www.` to the apex, or the reverse). The platform refuses to follow it,
+  because a cross-host redirect strips the `Authorization` header and would
+  turn every call into an anonymous 401. Set `VAPN_ADVISOR_URL` to the address
+  in the message.
+
+**Nothing appearing in your artifact bucket is usually this same fault.** The
+build begins with the provider sync and aborts there, so it never reaches the
+upload — an empty bucket and a silent fleet are one problem, not two.
 
 `ASN … claimed by two providers` is a data problem on the VPS Advisor side, not
 yours. The builder refuses to guess which provider owns an address range;
@@ -785,7 +796,7 @@ build ([how the builder works](README.md)), and a failure there aborts the run
 with exit code 1 before anything is downloaded or written:
 
 ```
-provider sync: advisor returned 404
+provider sync: advisor GET https://www.vpsadvisor.example/api/v1/monitoring/providers?enabled=true: 404 Not Found
 ```
 
 The builder will not fall back to a guessed provider list — the ASN-to-provider

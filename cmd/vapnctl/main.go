@@ -151,6 +151,12 @@ func cmdStatus(c *client) error {
 		OutboxQueued     int            `json:"outbox_queued"`
 		SecurityEvents24 map[string]int `json:"security_events_24h"`
 		SchedulerPaused  bool           `json:"scheduler_paused"`
+		AdvisorSync      map[string]struct {
+			LastAttemptAt time.Time  `json:"last_attempt_at"`
+			LastSuccessAt *time.Time `json:"last_success_at"`
+			LastError     string     `json:"last_error"`
+			FailureStreak int        `json:"consecutive_failures"`
+		} `json:"advisor_sync"`
 	}
 	if err := c.do("GET", "/admin/v1/overview", nil, &ov); err != nil {
 		return err
@@ -187,6 +193,29 @@ func cmdStatus(c *client) error {
 		sched = "PAUSED"
 	}
 	fmt.Fprintf(w, "Scheduler:\t%s\n", sched)
+	// VPS Advisor sync is reported per feed because a worker approved on the
+	// website only becomes active here once `decisions` succeeds. A failing
+	// feed is the answer to "I approved it and the worker still says pending".
+	if len(ov.AdvisorSync) > 0 {
+		feeds := make([]string, 0, len(ov.AdvisorSync))
+		for name := range ov.AdvisorSync {
+			feeds = append(feeds, name)
+		}
+		sort.Strings(feeds)
+		for _, name := range feeds {
+			f := ov.AdvisorSync[name]
+			switch {
+			case f.FailureStreak > 0:
+				fmt.Fprintf(w, "Advisor %s:\tFAILING (%d in a row): %s\n",
+					name, f.FailureStreak, f.LastError)
+			case f.LastSuccessAt != nil:
+				fmt.Fprintf(w, "Advisor %s:\tok (last success %s)\n",
+					name, f.LastSuccessAt.Local().Format(time.RFC3339))
+			default:
+				fmt.Fprintf(w, "Advisor %s:\tno pass yet\n", name)
+			}
+		}
+	}
 	return w.Flush()
 }
 

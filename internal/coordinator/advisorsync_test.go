@@ -13,6 +13,73 @@ import (
 	"github.com/HummingByteDev/vpsa-network-discovery/internal/mockadvisor"
 )
 
+// TestProviderCatalogAcceptsSlugIdentifiers: a provider_id is opaque. VPS
+// Advisor publishes its provider **slug**, because the website's own provider
+// key is an autoincrement that is not stable across a restore — so the
+// platform must store whatever arrives rather than assume a UUID.
+//
+// This is the second symptom of the same integration break: the builder aborts
+// on `provider sync` before it reaches artifact publication, so a rejected
+// catalog means nothing is ever uploaded for workers to download.
+func TestProviderCatalogAcceptsSlugIdentifiers(t *testing.T) {
+	e := setup(t, "")
+	ctx := context.Background()
+
+	fixtures := `{
+	  "providers": [
+	    {"provider_id": "examplehost", "name": "ExampleHost",
+	     "asns": [64720], "monitoring_enabled": true, "priority": 10,
+	     "updated_at": "2026-07-01T00:00:00Z"},
+	    {"provider_id": "another-host-bv", "name": "Another Host BV",
+	     "asns": [64721], "monitoring_enabled": true, "priority": 20,
+	     "updated_at": "2026-07-01T00:00:00Z"}
+	  ]
+	}`
+	f, err := mockadvisor.LoadFixtures([]byte(fixtures))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adv := httptest.NewServer(mockadvisor.NewServer(f, "svc", discard()))
+	defer adv.Close()
+
+	client := advisor.New(adv.URL, "svc")
+	asnToProvider, err := advisor.SyncProviders(ctx, e.pool, client)
+	if err != nil {
+		t.Fatalf("slug provider ids rejected: %v", err)
+	}
+	if got := asnToProvider[64720]; got != "examplehost" {
+		t.Fatalf("ASN 64720 → %q, want examplehost", got)
+	}
+	var stored string
+	if err := e.pool.QueryRow(ctx, `select provider_id from routing.provider
+		where name = 'ExampleHost'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "examplehost" {
+		t.Fatalf("stored provider_id = %q, want the slug verbatim", stored)
+	}
+
+	// Delisting compares the same opaque values: dropping one provider from
+	// the catalog must delist exactly that one.
+	f.Providers = f.Providers[:1]
+	if _, err := advisor.SyncProviders(ctx, e.pool, client); err != nil {
+		t.Fatal(err)
+	}
+	// Scoped to this test's two providers: the routing schema is shared across
+	// the package's tests and is not truncated between them.
+	var delisted, live int
+	if err := e.pool.QueryRow(ctx, `select
+		count(*) filter (where delisted_at is not null),
+		count(*) filter (where delisted_at is null)
+		from routing.provider where provider_id in ('examplehost','another-host-bv')`).
+		Scan(&delisted, &live); err != nil {
+		t.Fatal(err)
+	}
+	if delisted != 1 || live != 1 {
+		t.Fatalf("delisted=%d live=%d, want exactly the dropped provider delisted", delisted, live)
+	}
+}
+
 // TestAdvisorSyncFlow: an enrollment created on VPS Advisor is provisioned
 // locally and its token redeems against the coordinator; a suspend decision
 // from the advisor dashboard is applied. VPS Advisor stays the source of

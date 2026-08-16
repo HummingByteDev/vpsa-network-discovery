@@ -34,6 +34,8 @@ process-local and reset on restart — alert on `rate()`, not absolute values.
 | `vapn_trust_events_total{type}` | counter | Security/trust events |
 | `vapn_consensus_windows_total` | counter | Consensus windows computed (aggregator) |
 | `vapn_outbox_push_total{kind,outcome}` | counter | Pushes to VPS Advisor (aggregator) |
+| `vapn_advisor_sync_total{feed,outcome}` | counter | VPS Advisor pulls by feed (`providers`\|`enrollments`\|`decisions`) and outcome |
+| `vapn_advisor_sync_last_success_timestamp_seconds{feed}` | gauge | Last successful pull per feed — a stale `decisions` value means approvals are not arriving |
 | `vapn_http_requests_total{route,code}` | counter | HTTP requests by route pattern |
 | `vapn_http_request_duration_seconds` | histogram | Request latency by route |
 

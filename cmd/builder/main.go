@@ -81,7 +81,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	b := builder.New(bcfg, pool, advisor.New(advisorURL, advisorToken), pub, log)
+	// The build starts with a provider sync and cannot proceed without it, so a
+	// bad advisor URL means no snapshot and no artifact upload. Say that here,
+	// in those words, rather than leaving a 404 to explain itself.
+	adv := advisor.New(advisorURL, advisorToken)
+	if err := adv.Validate(); err != nil {
+		log.Error("VPS Advisor URL is misconfigured; the provider sync that every "+
+			"build starts with will fail, so no snapshot will be published",
+			"advisor_url", adv.BaseURL(), "error", err)
+	}
+
+	b := builder.New(bcfg, pool, adv, pub, log)
 	if err := b.Run(ctx); err != nil {
 		if errors.Is(err, builder.ErrSanityGate) {
 			log.Error("snapshot held for review", "error", err)

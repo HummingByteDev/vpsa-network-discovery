@@ -57,6 +57,14 @@ curl -fsSL https://raw.githubusercontent.com/HummingByteDev/vpsa-network-discove
 > This downloads the small `vapn` command-line tool for your architecture and
 > immediately runs `vapn install`, which does the real work.
 
+The installer puts `vapn` in `/usr/local/bin` when it can write there. On a
+machine where it cannot — no `sudo`, or a locked-down host — it falls back to
+`~/.local/bin` and makes sure that directory is on your `PATH`: it adds one
+line to your shell profile (`~/.bashrc`, or `~/.zshrc` for zsh) and tells you
+it did. Running the installer again adds nothing further, and a profile that
+already has the directory is left alone. Open terminals need
+`source ~/.bashrc` once; new ones just work.
+
 **Prefer to read a script before running it?** That's encouraged — see
 [other ways to install](#other-ways-to-install) below.
 
@@ -119,6 +127,25 @@ a deliberate anti-abuse step.
 **You don't have to do anything.** Once approved, the worker downloads the
 routing snapshot and starts probing on its own. Approval status is visible on
 your VPS Advisor dashboard. See [Worker lifecycle](lifecycle.md).
+
+**No restart is needed, ever.** The worker asks the coordinator for its state
+on every heartbeat (30 s by default), so approval is picked up on the next beat
+after an administrator grants it. In `vapn logs -f` you will see:
+
+```
+worker registered           worker_id=9f30… state=pending
+worker state                state=pending
+awaiting approval           an administrator must approve this worker on VPS Advisor…
+still awaiting approval     waiting_for=10m0s
+worker approval detected    from=pending state=active
+snapshot installed          version=20260816T0800Z-… targets=…
+```
+
+While it waits it repeats the reminder every ten minutes rather than on every
+heartbeat, so the transition is easy to spot. If an administrator has approved
+you and the worker still says pending after a few minutes, that is a platform-
+side fault — see
+[troubleshooting](troubleshooting.md#awaiting-approval-after-being-approved).
 
 ## You're done
 

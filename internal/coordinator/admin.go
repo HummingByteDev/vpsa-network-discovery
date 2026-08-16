@@ -20,6 +20,10 @@ type fleetOverview struct {
 	OutboxQueued     int               `json:"outbox_queued"`
 	SecurityEvents24 map[string]int    `json:"security_events_24h"`
 	SchedulerPaused  bool              `json:"scheduler_paused"`
+	// AdvisorSync is per-feed health of the VPS Advisor pull. Workers approved
+	// on the website reach `active` only through the `decisions` feed, so this
+	// is the first thing to read when a worker is stuck pending.
+	AdvisorSync map[string]feedHealth `json:"advisor_sync,omitempty"`
 }
 
 type overviewSnapshot struct {
@@ -35,6 +39,7 @@ func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
 		SoftwareVersions: map[string]int{},
 		SecurityEvents24: map[string]int{},
 		SchedulerPaused:  s.paused.Load(),
+		AdvisorSync:      s.AdvisorHealth(),
 	}
 	rows, err := s.reg.Pool.Query(ctx, `select state, count(*) from registry.worker group by 1`)
 	if err != nil {

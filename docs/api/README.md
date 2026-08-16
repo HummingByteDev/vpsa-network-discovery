@@ -58,11 +58,20 @@ Auth: platform service credential (`Authorization: Bearer <token>`), scoped to
 **Request:** `GET /api/v1/monitoring/providers?enabled=true`
 **Response 200:**
 ```json
-{ "providers": [ { "provider_id": "7f9c...", "name": "ExampleHost",
+{ "providers": [ { "provider_id": "examplehost", "name": "ExampleHost",
     "asns": [64500, 64501], "monitoring_enabled": true, "priority": 10,
     "updated_at": "2026-07-18T06:00:00Z" } ], "next_cursor": null }
 ```
 **Status:** `200` ok · `401` bad token.
+
+> **`provider_id` is an opaque string, not a UUID.** The platform stores it
+> verbatim, joins on it, and echoes it back on
+> [A4](#a4-results-ingestion-platform-pushes--idempotent);
+> it never parses it. VPS Advisor publishes its provider **slug**, because the
+> website's provider key is an autoincrement that is not stable across a
+> database restore. Any stable, unique, ≤255-character identifier is valid —
+> pick one and do not change it, since the platform's stored measurements are
+> keyed on it.
 
 ### A2. Enrollment (operator UI + platform pull)
 

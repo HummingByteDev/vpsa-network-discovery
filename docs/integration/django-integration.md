@@ -209,14 +209,14 @@ from django.urls import path
 from . import views
 urlpatterns = [
     path("providers",                         views.ProviderList.as_view()),
-    path("providers/<uuid:pk>",               views.ProviderDetail.as_view()),
+    path("providers/<slug:provider_id>",      views.ProviderDetail.as_view()),
     path("asns",                              views.ASNList.as_view()),
     path("workers",                           views.WorkerList.as_view()),
     path("workers/<uuid:pk>/regenerate-token",views.RegenerateToken.as_view()),
     path("enrollments/pending",               views.PendingEnrollments.as_view()),
     path("enrollments/<uuid:pk>/registered",  views.EnrollmentRegistered.as_view()),
     path("admin/decisions",                   views.DecisionList.as_view()),
-    path("results/providers/<uuid:pk>",       views.ResultUpsert.as_view()),
+    path("results/providers/<slug:provider_id>", views.ResultUpsert.as_view()),
     path("results/anomalies",                 views.AnomalyIngest.as_view()),
     path("results/history",                   views.HistoryIngest.as_view()),
     path("telemetry/fleet",                   views.FleetTelemetry.as_view()),
@@ -237,7 +237,7 @@ urlpatterns = [
 {
   "providers": [
     {
-      "provider_id": "7f9c...",
+      "provider_id": "examplehost",
       "name": "ExampleHost",
       "asns": [64500, 64501],
       "monitoring_enabled": true,
@@ -252,6 +252,13 @@ urlpatterns = [
 - **Semantics:** a provider **absent** from the enabled list is treated as
   opted-out/delisted and drained platform-side. Returning the full list is
   always correct.
+- **`provider_id` is opaque to the platform** — a stable, unique string of at
+  most 255 characters. Your **slug** is the right choice and what the reference
+  implementation publishes: an autoincrement primary key is not stable across a
+  database restore, and the platform's stored measurements are keyed on
+  whatever you send. Whatever you pick, never change it for an existing
+  provider; that reads platform-side as one provider disappearing and another
+  appearing.
 - **Errors:** `401` bad token.
 
 ```python
