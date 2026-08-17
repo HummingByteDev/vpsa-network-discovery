@@ -280,9 +280,13 @@ that one bucket.
 |---|---|---|---|
 | `VAPN_ARTIFACT_S3_ENDPOINT` | | Your storage provider's address | Backblaze B2: `s3.us-west-004.backblazeb2.com` · Cloudflare R2: `<account-id>.r2.cloudflarestorage.com` · AWS: `s3.<region>.amazonaws.com`. Host only — no `https://` |
 | `VAPN_ARTIFACT_S3_BUCKET` | | Bucket name | Default `vapn-artifacts`, or your bucket's name |
-| `VAPN_ARTIFACT_S3_REGION` | | Region | AWS: your region. Cloudflare R2: `auto`. Backblaze B2: leave empty |
-| `VAPN_ARTIFACT_S3_ACCESS_KEY` | 🔒 | Storage username | From your storage provider |
-| `VAPN_ARTIFACT_S3_SECRET_KEY` | 🔒 | Storage password | From your storage provider |
+| `VAPN_ARTIFACT_S3_REGION` | | Region | AWS: your region (required). Cloudflare R2: `auto`. Backblaze B2: the region in your endpoint, e.g. `us-east-005`, or leave empty |
+| `VAPN_ARTIFACT_S3_ACCESS_KEY` | 🔒 | Storage username | From your storage provider. **Backblaze B2: create an *application key*** — the account master key is rejected by the S3 API |
+| `VAPN_ARTIFACT_S3_SECRET_KEY` | 🔒 | Storage password | From your storage provider, shown only once |
+
+Create the bucket yourself before the first build — the builder uploads into it
+and never creates it. Keep it **private**; workers fetch snapshots through the
+coordinator, not directly from the bucket.
 
 ### Group 5 — Location data (MaxMind)
 
@@ -671,6 +675,24 @@ Every failure below leaves your **previously published snapshot fully in
 force**. Workers keep probing the addresses they already have, indefinitely.
 A failed build is never an outage — take your time.
 
+> **Where the builder's logs are.** The builder is a one-shot job, not a
+> running service, so `docker compose logs builder` shows **nothing** — the
+> container is gone by the time you ask. Read its output from whichever way it
+> ran:
+>
+> ```sh
+> # A build you started by hand: keep a copy as it runs.
+> docker compose run --rm builder 2>&1 | tee /tmp/vapn-build.log
+>
+> # A build the timer started: it goes to the journal.
+> journalctl -u vapn-builder.service --since -1d --no-pager
+> ```
+>
+> The `grep`s below assume you have one of those two; `BUILD_LOG` in the
+> examples means either `/tmp/vapn-build.log` or the `journalctl` output.
+> Long-running services (`coordinator`, `aggregator`, `postgres`) do work with
+> `docker compose logs`.
+
 ### Docker isn't available
 
 **What it usually means:** the daemon isn't running, or your user can't reach
@@ -705,7 +727,7 @@ refuse to start rather than run half-configured, and they list **every**
 problem at once instead of stopping at the first.
 
 ```sh
-docker compose logs builder | grep -A2 'bad configuration'
+grep -A2 'bad configuration' "$BUILD_LOG"
 ```
 
 **Healthy result:** no output. Otherwise you will see
@@ -762,7 +784,7 @@ startup, so a slow start is handled for you.
 path on the end.
 
 ```sh
-docker compose logs builder | grep -i advisor
+grep -i advisor "$BUILD_LOG"
 ```
 
 **Healthy result:** `provider sync complete asns=N` with N greater than zero.
@@ -914,6 +936,34 @@ VAPN_SANITY_FORCE=true docker compose run --rm builder
 Do not put `VAPN_SANITY_FORCE=true` in `.env` — that disables the protection
 permanently.
 
+### The storage bucket is empty
+
+**What it usually means:** almost never the storage settings. A build uploads
+only at the very end, so anything that stops it earlier leaves the bucket
+untouched — and the builder is a one-shot, so if it never ran there is nothing
+to find. Work through the stages in order; each one logs a line, and the
+**last line you see tells you where it stopped**:
+
+```sh
+docker compose run --rm builder 2>&1 | tee /tmp/vapn-build.log
+grep -E 'artifact publication enabled|provider sync complete|extraction complete|snapshot loaded|artifact published|snapshot published|level.:.(ERROR|WARN)' /tmp/vapn-build.log
+```
+
+| Last line you see | Where it stopped | What to do |
+|---|---|---|
+| *(no output at all)* | The build never ran | The builder is behind a Compose profile, so `docker compose up -d` does **not** start it. Run it as above, then [enable the timer](#step-8--run-the-builder-automatically) |
+| `bad configuration` | Startup | [Configuration validation fails](#configuration-validation-fails) |
+| *no* `artifact publication enabled` | Startup | No store configured, or `VAPN_SNAPSHOT_SIGNING_KEY` unusable. The build still runs, and still uploads nothing — check `VAPN_ARTIFACT_S3_ENDPOINT` is set for the **builder** |
+| `provider sync` error | Stage 1 | [VPS Advisor authentication fails](#vps-advisor-authentication-fails). This is the most common cause of an empty bucket |
+| `mrt extraction` error | Stage 2 | [The routing download fails](#the-routing-download-fails) |
+| `geo enrichment` error | Stage 3 | [The location database is missing](#the-location-database-is-missing) |
+| `snapshot held for review` | Sanity gate | [The safety check held my build](#the-safety-check-held-my-build) — deliberate, nothing is published |
+| `upload artifact` / `readback` error | Upload | [Publishing to storage fails](#publishing-to-storage-fails) |
+| `snapshot published` | Finished | It worked; the bucket has `snapshots/…` and `current.json` |
+
+**Healthy full run** ends with `artifact published …` followed by
+`snapshot published version=… elapsed=…`.
+
 ### Publishing to storage fails
 
 **What it usually means:** wrong endpoint, wrong credentials, or a bucket the
@@ -922,7 +972,7 @@ uploaded before marking a snapshot published, so a half-uploaded snapshot never
 becomes live.
 
 ```sh
-docker compose logs builder | grep -iE 'artifact|upload|readback'
+grep -iE 'artifact|upload|readback' "$BUILD_LOG"
 ```
 
 **Healthy result:** `artifact published version=… sha256=… targets=…`. Errors
@@ -938,7 +988,7 @@ private key this builder signs with.
 On the builder, the public key is printed at the start of every run:
 
 ```sh
-docker compose logs builder | grep 'artifact publication enabled'
+grep 'artifact publication enabled' "$BUILD_LOG"
 ```
 
 **Healthy result:** `public_key=hJJgj1Wx9sQ…`. Compare it to the value the

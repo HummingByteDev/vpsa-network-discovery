@@ -96,14 +96,25 @@ setting both is a startup error. Setting neither means no store: the
 **coordinator refuses to start**, and the **builder runs in build-only mode**,
 logging a warning that the snapshot will not be distributable to workers.
 
-Endpoint examples:
+The endpoint is a **host**: no scheme, no bucket name, no path. A pasted
+`https://` prefix is stripped for you, but anything after the host is not.
 
-| Provider | `VAPN_ARTIFACT_S3_ENDPOINT` | Notes |
-|---|---|---|
-| Backblaze B2 | `s3.<region>.backblazeb2.com` | application key ID/secret as access/secret |
-| Cloudflare R2 | `<account-id>.r2.cloudflarestorage.com` | set `VAPN_ARTIFACT_S3_REGION=auto` |
-| AWS S3 | `s3.<region>.amazonaws.com` | set `VAPN_ARTIFACT_S3_REGION` |
-| MinIO (dev) | `localhost:9000` | set `VAPN_ARTIFACT_S3_USE_SSL=false` |
+| Provider | `…_S3_ENDPOINT` | `…_S3_REGION` | Credentials |
+|---|---|---|---|
+| Backblaze B2 | `s3.<region>.backblazeb2.com` | `<region>`, e.g. `us-east-005` (optional; inferred if empty) | **Application** key ID + key. The account **master key does not work with the S3 API** |
+| Cloudflare R2 | `<account-id>.r2.cloudflarestorage.com` | `auto` (literal) | R2 API token → Access Key ID + Secret Access Key |
+| AWS S3 | `s3.<region>.amazonaws.com` | `<region>` — **required** | IAM access key + secret |
+| MinIO (dev) | `localhost:9000` | — | root user + password; also set `VAPN_ARTIFACT_S3_USE_SSL=false` |
+
+A ready-to-paste block per provider is in
+[`deploy/prod/.env.example`](../../deploy/prod/.env.example).
+
+**The bucket must already exist** — the builder uploads into it and never
+creates it, so a key scoped to one bucket is enough (and is what you want).
+Objects appear only when a build runs: the builder is a scheduled one-shot, so
+an empty bucket after `docker compose up -d` is expected until
+`vapn-builder.timer` fires or you run a build by hand. See
+[builder installation](../builder/installation.md).
 
 ---
 
