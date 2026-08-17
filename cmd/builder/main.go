@@ -38,6 +38,7 @@ func main() {
 		BviewPath:             cfg.String("RIS_BVIEW_PATH", "data/ripe/latest-bview.gz"),
 		CityMMDB:              cfg.String("GEOIP_CITY_MMDB", ""),
 		MaxTargetsPerProvider: cfg.Int("MAX_TARGETS_PER_PROVIDER", 100),
+		MaxTargetsPerCountry:  cfg.Int("MAX_TARGETS_PER_COUNTRY", 10),
 		SanityMaxDelta:        float64(cfg.Int("SANITY_MAX_DELTA_PCT", 50)) / 100,
 		SanityForce:           cfg.Bool("SANITY_FORCE", false),
 		RetainSnapshots:       cfg.Int("RETAIN_SNAPSHOTS", 5),

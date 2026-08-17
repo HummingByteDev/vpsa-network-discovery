@@ -20,12 +20,16 @@ import (
 )
 
 type Config struct {
-	WindowSeconds  int     // consensus window length (default 300)
-	MinWorkers     int     // distinct workers needed for a verdict (default 3)
-	HealthyRatio   float64 // reachable fraction ⇒ healthy (default 0.9)
-	DegradedRatio  float64 // reachable fraction ⇒ degraded (default 0.5)
-	LatencyFactor  float64 // p50 vs 6h baseline ⇒ latency anomaly (default 2.0)
-	RawRetention   time.Duration // raw observation retention (default 14d)
+	WindowSeconds int     // consensus window length (default 300)
+	MinWorkers    int     // distinct workers needed for a verdict (default 3)
+	HealthyRatio  float64 // reachable fraction ⇒ healthy (default 0.9)
+	DegradedRatio float64 // reachable fraction ⇒ degraded (default 0.5)
+	LatencyFactor float64 // p50 vs 6h baseline ⇒ latency anomaly (default 2.0)
+	// TargetWindow is the trailing period per-network availability is measured
+	// over — the "99.98% uptime" a consumer renders next to a prefix
+	// (default 24h).
+	TargetWindow    time.Duration
+	RawRetention    time.Duration // raw observation retention (default 14d)
 	WindowRetention time.Duration // consensus window retention (default 90d)
 }
 
@@ -44,6 +48,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.LatencyFactor <= 0 {
 		c.LatencyFactor = 2.0
+	}
+	if c.TargetWindow <= 0 {
+		c.TargetWindow = 24 * time.Hour
 	}
 	if c.RawRetention <= 0 {
 		c.RawRetention = 14 * 24 * time.Hour
@@ -70,56 +77,79 @@ type Engine struct {
 // reachable. Only targets that answered *someone* in the trailing 24 h
 // ("responsive targets") count toward the provider verdict — an address that
 // never answers ICMP is a non-signal, not an outage.
+//
+// Every rollup is computed twice over the same votes: once globally, and once
+// per **region**, which here is the country the probed address belongs to
+// (`routing.probe_target.geo_country`, set by the builder from the announced
+// prefix). A provider with address space in nine countries gets nine regional
+// verdicts plus the global one, and a country whose targets nobody probed is
+// reported as `insufficient_data` — never as an outage, and never quietly
+// averaged into the global number. Addresses the published snapshot does not
+// place — including observations against a target from an older snapshot —
+// are attributed to region `ZZ` (unknown), never to a real country.
 func (e *Engine) ComputeWindow(ctx context.Context, windowStart time.Time) error {
 	cfg := e.Cfg.withDefaults()
 	windowEnd := windowStart.Add(time.Duration(cfg.WindowSeconds) * time.Second)
 
 	_, err := e.Pool.Exec(ctx, `
-	with obs as (
-	  select o.provider_id, o.target, o.worker_id, o.ok, o.rtt_ms
+	with tgeo as (
+	  select t.provider_id, t.address as target,
+	         coalesce(nullif(t.geo_country, ''), 'ZZ') as region
+	  from routing.probe_target t
+	  join routing.snapshot s on s.id = t.snapshot_id and s.status = 'published'
+	), obs as (
+	  select o.provider_id, o.target, o.worker_id, o.ok, o.rtt_ms,
+	         coalesce(g.region, 'ZZ') as region
 	  from measurements.observation o
 	  join registry.worker w on w.id = o.worker_id and w.state = 'active'
+	  left join tgeo g on g.provider_id = o.provider_id and g.target = o.target
 	  where o.measured_at >= $1 and o.measured_at < $2
 	), responsive as (      -- targets that answered anyone in the trailing 24h
 	  select distinct provider_id, target from measurements.observation
 	  where measured_at >= $1::timestamptz - interval '24 hours'
 	    and measured_at < $2 and ok
 	), per_worker_target as (
-	  select provider_id, target, worker_id,
+	  select provider_id, region, target, worker_id,
 	         avg(case when ok then 1.0 else 0.0 end) as ok_ratio,
 	         count(*) as n
-	  from obs group by 1, 2, 3
+	  from obs group by 1, 2, 3, 4
 	), weighted as (
 	  select pwt.*, coalesce(greatest(ts.score, 0.1), 0.1) as weight
 	  from per_worker_target pwt
 	  left join registry.trust_score ts on ts.worker_id = pwt.worker_id
 	), per_target as (
-	  select w.provider_id, w.target,
+	  select w.provider_id, w.region, w.target,
 	         sum(w.weight) filter (where w.ok_ratio >= 0.5) / nullif(sum(w.weight), 0) as up_weight,
 	         count(distinct w.worker_id) as workers
 	  from weighted w
 	  join responsive r on r.provider_id = w.provider_id and r.target = w.target
-	  group by 1, 2
+	  group by 1, 2, 3
 	), provider_rollup as (
+	  -- One pass, two granularities: the grouping set () is the global rollup,
+	  -- (region) the per-country one. Global stays exactly what it always was.
 	  select pt.provider_id,
+	         case when grouping(pt.region) = 1 then 'global' else pt.region end as region,
 	         count(*) as measured_targets,
 	         count(*) filter (where pt.up_weight >= 0.5) as up_targets,
 	         max(pt.workers) as worker_count,
 	         avg(2 * least(coalesce(pt.up_weight, 0), 1 - coalesce(pt.up_weight, 0))) as dissent
-	  from per_target pt group by 1
+	  from per_target pt
+	  group by pt.provider_id, grouping sets ((), (pt.region))
 	), rtt as (
 	  select provider_id,
+	         case when grouping(region) = 1 then 'global' else region end as region,
 	         percentile_cont(0.5)  within group (order by rtt_ms) as p50,
 	         percentile_cont(0.95) within group (order by rtt_ms) as p95,
 	         percentile_cont(0.99) within group (order by rtt_ms) as p99,
 	         avg(case when ok then 0.0 else 1.0 end) as loss_rate
-	  from obs where rtt_ms is not null or not ok group by 1
+	  from obs where rtt_ms is not null or not ok
+	  group by provider_id, grouping sets ((), (region))
 	)
 	insert into aggregation.consensus_window
 	  (provider_id, region, probe_type, window_start, window_seconds,
 	   verdict, confidence, worker_count, dissent_ratio, loss_rate,
 	   rtt_p50, rtt_p95, rtt_p99, detail)
-	select pr.provider_id, 'global', 'icmp', $1, $3,
+	select pr.provider_id, pr.region, 'icmp', $1, $3,
 	  case
 	    when pr.worker_count < $4 or pr.measured_targets = 0 then 'insufficient_data'
 	    when pr.up_targets::float / pr.measured_targets >= $5 then 'healthy'
@@ -133,7 +163,7 @@ func (e *Engine) ComputeWindow(ctx context.Context, windowStart time.Time) error
 	  jsonb_build_object('measured_targets', pr.measured_targets,
 	                     'up_targets', pr.up_targets)
 	from provider_rollup pr
-	left join rtt r on r.provider_id = pr.provider_id
+	left join rtt r on r.provider_id = pr.provider_id and r.region = pr.region
 	on conflict (provider_id, region, probe_type, window_start, window_seconds) do nothing`,
 		windowStart, windowEnd, cfg.WindowSeconds, cfg.MinWorkers,
 		cfg.HealthyRatio, cfg.DegradedRatio)
@@ -177,87 +207,179 @@ func (e *Engine) ComputeWindow(ctx context.Context, windowStart time.Time) error
 	return nil
 }
 
+// winRow is one settled consensus window: a provider's verdict for one region
+// ('global' or a country code).
+type winRow struct {
+	provider, region, verdict string
+	confidence, dissent       float64
+	lossRate, p50, p95        *float64
+	workerCount               int
+	windowStart               time.Time
+	detail                    map[string]any
+}
+
+func (w winRow) metrics() map[string]any {
+	return map[string]any{
+		"loss_rate": w.lossRate, "rtt_p50_ms": w.p50, "rtt_p95_ms": w.p95,
+		"worker_count": w.workerCount, "dissent_ratio": w.dissent,
+	}
+}
+
 // RollupStatus refreshes aggregation.provider_status from each provider's
-// newest settled window, opens/resolves anomalies on transitions, and queues
-// publication outbox entries. Providers with no window keep their last state.
+// newest settled window — globally and per country — refreshes per-target
+// health, opens/resolves anomalies on global transitions, and queues one
+// status document per provider for VPS Advisor. Providers with no window keep
+// their last state.
+//
+// Anomalies stay global on purpose: a per-country anomaly stream would open
+// one incident per country for a single provider-wide outage. Country detail
+// lives in the status document instead.
 func (e *Engine) RollupStatus(ctx context.Context) error {
 	cfg := e.Cfg.withDefaults()
+	if err := e.refreshTargetStatus(ctx, cfg); err != nil {
+		return fmt.Errorf("target status: %w", err)
+	}
+
 	rows, err := e.Pool.Query(ctx, `
-		select distinct on (provider_id)
-		  provider_id, verdict, confidence, window_start, loss_rate,
-		  rtt_p50, rtt_p95, worker_count, dissent_ratio
+		select distinct on (provider_id, region)
+		  provider_id, region, verdict, confidence, window_start, loss_rate,
+		  rtt_p50, rtt_p95, worker_count, dissent_ratio, detail
 		from aggregation.consensus_window
-		where region = 'global'
-		order by provider_id, window_start desc`)
+		order by provider_id, region, window_start desc`)
 	if err != nil {
 		return err
 	}
-	type winRow struct {
-		provider, verdict                 string
-		confidence, dissent               float64
-		lossRate, p50, p95                *float64
-		workerCount                       int
-		windowStart                       time.Time
-	}
-	var wins []winRow
+	byProvider := map[string][]winRow{}
+	var order []string
 	for rows.Next() {
 		var w winRow
-		if err := rows.Scan(&w.provider, &w.verdict, &w.confidence, &w.windowStart,
-			&w.lossRate, &w.p50, &w.p95, &w.workerCount, &w.dissent); err != nil {
+		var detail []byte
+		if err := rows.Scan(&w.provider, &w.region, &w.verdict, &w.confidence,
+			&w.windowStart, &w.lossRate, &w.p50, &w.p95, &w.workerCount,
+			&w.dissent, &detail); err != nil {
 			rows.Close()
 			return err
 		}
-		wins = append(wins, w)
+		_ = json.Unmarshal(detail, &w.detail)
+		if _, seen := byProvider[w.provider]; !seen {
+			order = append(order, w.provider)
+		}
+		byProvider[w.provider] = append(byProvider[w.provider], w)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	for _, w := range wins {
+	for _, provider := range order {
+		wins := byProvider[provider]
+		// The previous verdict must be read before the upsert overwrites it:
+		// transitions are what open and close anomalies.
 		var prev string
-		err := e.Pool.QueryRow(ctx, `select verdict from aggregation.provider_status
-			where provider_id = $1 and region = 'global'`, w.provider).Scan(&prev)
-		if err != nil && err != pgx.ErrNoRows {
-			return err
-		}
-		metrics := map[string]any{
-			"loss_rate": w.lossRate, "rtt_p50_ms": w.p50, "rtt_p95_ms": w.p95,
-			"worker_count": w.workerCount, "dissent_ratio": w.dissent,
-		}
-		metricsJSON, _ := json.Marshal(metrics)
-		if _, err := e.Pool.Exec(ctx, `
-			insert into aggregation.provider_status
-			  (provider_id, region, verdict, confidence, since, metrics, updated_at)
-			values ($1, 'global', $2, $3, $4, $5, now())
-			on conflict (provider_id, region) do update set
-			  verdict = excluded.verdict, confidence = excluded.confidence,
-			  since = case when aggregation.provider_status.verdict = excluded.verdict
-			               then aggregation.provider_status.since else excluded.since end,
-			  metrics = excluded.metrics, updated_at = now()`,
-			w.provider, w.verdict, w.confidence, w.windowStart, metricsJSON); err != nil {
+		if err := e.Pool.QueryRow(ctx, `select verdict from aggregation.provider_status
+			where provider_id = $1 and region = 'global'`, provider).Scan(&prev); err != nil &&
+			err != pgx.ErrNoRows {
 			return err
 		}
 
-		if prev != w.verdict {
-			e.handleTransition(ctx, w.provider, prev, w.verdict, w.windowStart)
+		var global *winRow
+		for i := range wins {
+			if wins[i].region == "global" {
+				global = &wins[i]
+			}
+			metricsJSON, _ := json.Marshal(wins[i].metrics())
+			if _, err := e.Pool.Exec(ctx, `
+				insert into aggregation.provider_status
+				  (provider_id, region, verdict, confidence, since, metrics, updated_at)
+				values ($1, $2, $3, $4, $5, $6, now())
+				on conflict (provider_id, region) do update set
+				  verdict = excluded.verdict, confidence = excluded.confidence,
+				  since = case when aggregation.provider_status.verdict = excluded.verdict
+				               then aggregation.provider_status.since else excluded.since end,
+				  metrics = excluded.metrics, updated_at = now()`,
+				provider, wins[i].region, wins[i].verdict, wins[i].confidence,
+				wins[i].windowStart, metricsJSON); err != nil {
+				return err
+			}
+		}
+		if global == nil {
+			continue // no global window: nothing coherent to publish yet
+		}
+		if prev != global.verdict {
+			e.handleTransition(ctx, provider, prev, global.verdict, global.windowStart)
 		}
 		// Latency regression: current p50 vs trailing 6h baseline.
-		if w.p50 != nil {
-			e.checkLatencyAnomaly(ctx, w.provider, *w.p50, w.windowStart, cfg.LatencyFactor)
+		if global.p50 != nil {
+			e.checkLatencyAnomaly(ctx, provider, *global.p50, global.windowStart, cfg.LatencyFactor)
 		}
-		// Queue the status document for VPS Advisor (drained in Phase 9).
-		payload, _ := json.Marshal(map[string]any{
-			"provider_id": w.provider, "as_of": w.windowStart,
-			"global": map[string]any{"verdict": w.verdict, "confidence": w.confidence,
-				"metrics": metrics},
-		})
+
+		payload, err := e.statusDocument(ctx, provider, wins, *global)
+		if err != nil {
+			return fmt.Errorf("status document for %s: %w", provider, err)
+		}
 		if _, err := e.Pool.Exec(ctx, `insert into aggregation.publication_outbox
 			(kind, payload) values ('provider_status', $1)`, payload); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// refreshTargetStatus rebuilds current per-target health from the trailing
+// measurement window. One row per probed address — which is one row per
+// monitored network, since a target represents its prefix — carrying the
+// availability, latency and loss a consumer renders per network.
+func (e *Engine) refreshTargetStatus(ctx context.Context, cfg Config) error {
+	if _, err := e.Pool.Exec(ctx, `
+	with recent as (
+	  select o.provider_id, o.target,
+	         avg(case when o.ok then 1.0 else 0.0 end) as availability,
+	         avg(case when o.ok then 0.0 else 1.0 end) as loss_rate,
+	         percentile_cont(0.5)  within group (order by o.rtt_ms) as p50,
+	         percentile_cont(0.95) within group (order by o.rtt_ms) as p95,
+	         count(distinct o.worker_id) as workers,
+	         max(o.measured_at) as last_measured_at
+	  from measurements.observation o
+	  join registry.worker w on w.id = o.worker_id and w.state = 'active'
+	  where o.measured_at >= now() - $1::interval
+	  group by 1, 2
+	), published as (
+	  select id from routing.snapshot where status = 'published'
+	  order by published_at desc limit 1
+	)
+	insert into aggregation.target_status
+	  (provider_id, target, region, prefix, origin_asn, city, verdict,
+	   availability, loss_rate, rtt_p50, rtt_p95, worker_count,
+	   last_measured_at, updated_at)
+	select r.provider_id, r.target,
+	       coalesce(nullif(t.geo_country, ''), 'ZZ'),
+	       p.prefix, p.origin_asn, t.geo_city,
+	       case when r.workers < $2 then 'insufficient_data'
+	            when r.availability >= $3 then 'healthy'
+	            when r.availability >= $4 then 'degraded'
+	            else 'outage' end,
+	       r.availability, r.loss_rate, r.p50, r.p95, r.workers,
+	       r.last_measured_at, now()
+	from recent r
+	left join routing.probe_target t
+	  on t.address = r.target and t.provider_id = r.provider_id
+	 and t.snapshot_id = (select id from published)
+	left join routing.prefix p on p.id = t.prefix_id
+	on conflict (provider_id, target) do update set
+	  region = excluded.region, prefix = excluded.prefix,
+	  origin_asn = excluded.origin_asn, city = excluded.city,
+	  verdict = excluded.verdict, availability = excluded.availability,
+	  loss_rate = excluded.loss_rate, rtt_p50 = excluded.rtt_p50,
+	  rtt_p95 = excluded.rtt_p95, worker_count = excluded.worker_count,
+	  last_measured_at = excluded.last_measured_at, updated_at = now()`,
+		cfg.TargetWindow, cfg.MinWorkers, cfg.HealthyRatio, cfg.DegradedRatio); err != nil {
+		return err
+	}
+	// Addresses that stopped being measured (snapshot dropped the prefix,
+	// provider delisted) age out rather than lingering as stale health.
+	_, err := e.Pool.Exec(ctx, `delete from aggregation.target_status
+		where updated_at < now() - $1::interval`, 2*cfg.TargetWindow)
+	return err
 }
 
 func (e *Engine) handleTransition(ctx context.Context, provider, prev, verdict string, at time.Time) {

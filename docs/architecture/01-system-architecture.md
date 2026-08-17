@@ -84,6 +84,14 @@ Responsibilities:
 - Enrich with MaxMind GeoIP (country/city/registered ASN), fetched from MaxMind with
   the platform operator's own licence key (never redistributed); GeoIP refresh is an independent
   job on its own cadence.
+- Compute each provider's **country distribution**: split every announcement at
+  the GeoIP database's record boundaries, count *exclusive* IPv4 address space
+  (a more-specific never counts its addresses again against the covering
+  announcement), and derive each country's share of the provider's deduplicated
+  address space. Stored per snapshot in `routing.provider_geo`; the reasoning
+  is in [GeoIP](../concepts/geoip.md#enriching-prefixes-builder).
+- Derive probe targets **country by country** rather than purely by prefix size,
+  so a provider with capacity in nine countries is measurable in all nine.
 - Load the result into the canonical `routing` schema in PostgreSQL, versioned.
 - Export a compact, signed **SQLite artifact** per snapshot version plus a metadata
   manifest (version, counts, checksums, signature, min compatible worker version) and
@@ -117,7 +125,13 @@ A long-running service (or scheduled pipeline) that owns **consensus and public 
 Responsibilities:
 - Window observations (e.g. 1-min raw → 5-min consensus → hourly/daily rollups).
 - Trust-weighted consensus per provider, per region, per protocol: health state,
-  confidence score, latency percentiles, packet loss.
+  confidence score, latency percentiles, packet loss. **A region is the country
+  of the measured address** (from the target's snapshot geography); each settled
+  window produces one global rollup plus one per country, from the same votes.
+  A country nobody probed gets no verdict rather than a guessed one.
+- Maintain current per-network health (`aggregation.target_status`): the
+  availability, latency and loss of each monitored prefix over a trailing
+  window.
 - Anomaly detection (routing instability signals, sudden reachability loss, latency
   regressions) — v1 statistical thresholds, extensible later.
 - Feed the trust engine: score each worker's agreement with consensus (see 05).

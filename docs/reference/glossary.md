@@ -149,11 +149,23 @@ never public on its own. →
 ICMP is the first `Prober` implementation. →
 [Measurement lifecycle](../walkthroughs/measurement-lifecycle.md)
 
+**network distribution** — where a provider's announced IPv4 space *is*, by
+country, as a share of its deduplicated total. Derived from BGP and GeoIP, so it
+exists whether or not anyone has measured the provider — the opposite of a
+monitoring result. → [GeoIP](../concepts/geoip.md#enriching-prefixes-builder)
+
 **probe target** — a representative address chosen from a prefix; what workers
-actually probe. → [Prefix ownership](../concepts/prefix-ownership.md)
+actually probe. Carries the country of its prefix, and targets are allocated
+country by country so a provider's whole footprint is measurable. →
+[Prefix ownership](../concepts/prefix-ownership.md)
 
 **quarantine / shadow mode** — a lifecycle state where a worker measures at
 weight 0 to rebuild trust. → [Worker lifecycle](../worker/lifecycle.md#quarantined-shadow-mode)
+
+**region** — in verdicts and the status document, the ISO 3166-1 alpha-2 country
+of the **measured address** (not of the worker measuring it), or `global`. `ZZ`
+means address space the GeoIP database does not place, and is rendered
+"unknown", never as a country. → [GeoIP](../concepts/geoip.md#regional-verdicts-made-concrete)
 
 **redundancy group** — the set of independent workers covering the same target,
 spread across regions/networks/operators. →

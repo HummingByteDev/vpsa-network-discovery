@@ -11,7 +11,8 @@ owned by VPS Advisor is only *cached with provenance* here.
 | **ASN** | VPS Advisor (membership) / RIPE (facts) | An autonomous system tied to ≥1 MonitoredProvider. Carries registry name, country. A provider may have many ASNs; an ASN maps to exactly one provider (conflicts are an admin-visible error state, not silently resolved). |
 | **Prefix** | Platform (derived) | An IPv4/IPv6 CIDR originated by a monitored ASN in a given routing snapshot. Attributes: origin ASN, first/last seen snapshot, GeoIP enrichment (country, city, coords), validation flags (bogon, MOAS conflict). |
 | **RoutingSnapshot** | Platform | A versioned build: source RIS dump identity, build time, ASN/prefix counts, artifact checksum + signature, status (`building`→`published`→`superseded`/`failed`). |
-| **ProbeTarget** | Platform (derived) | A concrete probeable address chosen from a provider's prefixes (e.g. representative addresses per prefix/region). Regenerated per snapshot; scheduling references targets, not raw prefixes. |
+| **ProbeTarget** | Platform (derived) | A concrete probeable address chosen from a provider's prefixes, carrying the country/city of the prefix it represents. Allocated country by country so a provider's whole footprint is measurable. Regenerated per snapshot; scheduling references targets, not raw prefixes. |
+| **ProviderGeo** | Platform (derived) | A provider's announced address space in one country, for one snapshot: IPv4 address count, share of the provider's total, IPv6 `/64` count, contributing prefix counts, probe-target count. Counts *exclusive* space, so nested announcements are never counted twice. This is network **distribution**, not measurement. |
 
 ## Worker registry & trust
 
@@ -36,7 +37,8 @@ owned by VPS Advisor is only *cached with provenance* here.
 
 | Entity | Owner | Description |
 |---|---|---|
-| **ConsensusWindow** | Platform | Trust-weighted aggregate for (provider, region, probe type, window): health verdict, confidence, latency percentiles, loss rate, contributing worker count, dissent ratio. |
+| **ConsensusWindow** | Platform | Trust-weighted aggregate for (provider, region, probe type, window): health verdict, confidence, latency percentiles, loss rate, contributing worker count, dissent ratio. `region` is `global` or the ISO 3166-1 country of the measured addresses (`ZZ` = unplaced). |
+| **TargetStatus** | Platform | Current health of one monitored network: the probed address, its prefix/country/city, verdict, availability over the trailing window, latency, loss, contributing workers, last measurement time. |
 | **ProviderStatus** | Platform → pushed to VPS Advisor | Current rollup per provider (+ per region): `healthy` / `degraded` / `outage` / `insufficient_data`, confidence, key metrics, active anomalies. |
 | **Anomaly** | Platform | Detected event: type (reachability loss, latency regression, routing churn), scope, severity, opened/resolved timestamps, contributing evidence refs. |
 | **PublicationRecord** | Platform | Outbox row for each push to the VPS Advisor Results API: payload hash, attempts, acked-at. Guarantees at-least-once delivery. |

@@ -217,8 +217,30 @@ func (p *Publisher) Prune(ctx context.Context, retain int) error {
 	}
 
 	for _, v := range victims {
+		// Closed assignments (and their released leases) still reference the
+		// snapshot's targets. They are scheduling history for work that can
+		// never be issued again, and leaving them behind makes the target
+		// delete below fail on a foreign key — which used to stall every build
+		// once RETAIN_SNAPSHOTS was exceeded on a system that had scheduled
+		// any work at all.
+		if _, err := p.Pool.Exec(ctx, `
+			delete from scheduling.lease l using scheduling.assignment a,
+			                                    routing.probe_target t
+			where l.assignment_id = a.id and a.target_id = t.id
+			  and t.snapshot_id = $1`, v.id); err != nil {
+			return err
+		}
+		if _, err := p.Pool.Exec(ctx, `
+			delete from scheduling.assignment a using routing.probe_target t
+			where a.target_id = t.id and t.snapshot_id = $1`, v.id); err != nil {
+			return err
+		}
 		if _, err := p.Pool.Exec(ctx,
 			`delete from routing.probe_target where snapshot_id = $1`, v.id); err != nil {
+			return err
+		}
+		if _, err := p.Pool.Exec(ctx,
+			`delete from routing.provider_geo where snapshot_id = $1`, v.id); err != nil {
 			return err
 		}
 		if _, err := p.Pool.Exec(ctx,

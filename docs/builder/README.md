@@ -83,8 +83,10 @@ behind.
 
 ### 3. MaxMind GeoLite2 (the operator's own key)
 
-The [GeoIP](../concepts/geoip.md) input — used to attach country/city/coords to
-each prefix so verdicts can be regional. Each operator supplies their own
+The [GeoIP](../concepts/geoip.md) input — used both to attach country/city/coords
+to each prefix and to work out how much address space a provider has in each
+country, which is what makes per-country verdicts and the published network
+distribution possible. Each operator supplies their own
 MaxMind licence key; the databases are never redistributed by the project, and
 GeoIP refresh runs on an independent cadence.
 
@@ -105,7 +107,8 @@ flowchart TD
   D --> E["Validate: bogon filter,<br/>MOAS conflict flagging"]
   E --> F["Enrich: GeoIP<br/>(country/city/coords)"]
   F --> G["Load into routing.* schema<br/>[status: building]"]
-  G --> H["Derive probe targets<br/>(capped per provider)"]
+  G --> GD["Country distribution<br/>(exclusive IPv4 space per country)"]
+  GD --> H["Derive probe targets<br/>(country by country, capped)"]
   H --> I{"Sanity gate:<br/>prefix-count swing<br/>within threshold?"}
   I -->|no| HOLD["Hold in 'building';<br/>exit code 2"]
   I -->|yes| J["Export signed SQLite artifact<br/>+ manifest (sha256, Ed25519)"]
@@ -145,34 +148,49 @@ flowchart TD
    `building`. Prefixes are per-snapshot and immutable, so diffing consecutive
    snapshots yields routing-churn signals.
 
-8. **Derive probe targets** — for each prefix, the **first usable address**
-   (network address + 1), with the reason recorded alongside it. Overlapping
-   announcements that resolve to the same address are collapsed, preferring the
-   least-specific covering prefix. The result is capped at
-   `VAPN_MAX_TARGETS_PER_PROVIDER` (default 100) **per provider per address
-   family**, ranked by prefix size and how widely the prefix is seen.
+8. **Compute the country distribution** (`internal/builder/distribution.go`) —
+   how much IPv4 address space each provider has in each country, written to
+   `routing.provider_geo`. Announcements are split at the GeoIP database's own
+   record boundaries, address space is counted **exclusively** (a more-specific
+   never counts its addresses again against the covering announcement), and
+   shares are address-weighted rather than prefix-counted. Space MaxMind does
+   not place is reported as `ZZ`, never as a country. →
+   [how the attribution works](../concepts/geoip.md#enriching-prefixes-builder)
 
-9. **Sanity gate** — compare the total prefix count against the currently
+9. **Derive probe targets** — for each prefix, the **first usable address**
+   (network address + 1), with the reason recorded alongside it, tagged with the
+   prefix's country and city. Overlapping announcements that resolve to the same
+   address are collapsed, preferring the least-specific covering prefix.
+   The per-provider budget (`VAPN_MAX_TARGETS_PER_PROVIDER`, default 100, **per
+   address family**) is then filled **country by country** — every country's
+   best target, then every country's second, and so on, up to
+   `VAPN_MAX_TARGETS_PER_COUNTRY` (default 10) each. Ranking inside a country is
+   by prefix size and how widely the prefix is seen. Filling by size alone would
+   spend the whole budget where a provider's largest announcements happen to be,
+   which makes a country-level verdict impossible for the rest of its
+   footprint.
+
+10. **Sanity gate** — compare the total prefix count against the currently
    published snapshot. A swing larger than `VAPN_SANITY_MAX_DELTA_PCT`
    (default 50%) leaves the snapshot in `building` and exits with **code 2**;
    the previous snapshot stays published. `VAPN_SANITY_FORCE=true` overrides it
    for one run. The very first build has nothing to compare against and always
    passes.
 
-10. **Export + sign** — write the worker-facing subset to a compact **SQLite**
+11. **Export + sign** — write the worker-facing subset to a compact **SQLite**
     file and produce a **manifest** carrying the version, object key, sha256,
     size, prefix/target counts, `min_worker_version`, and an **Ed25519
     signature** over all of it.
 
-11. **Publish atomically** — upload the artifact and the manifest, then **read
+12. **Publish atomically** — upload the artifact and the manifest, then **read
     both back and verify** the signature and hash before anything is marked
     published. Then, in one transaction, the new snapshot becomes `published`
     and the previous one `superseded`.
 
-12. **Point and prune** — move the `current` pointer object to the new version,
-    then delete routing rows and store objects for superseded snapshots beyond
-    the newest `VAPN_RETAIN_SNAPSHOTS` (default 5). The published snapshot is
-    never pruned.
+13. **Point and prune** — move the `current` pointer object to the new version,
+    then delete routing rows, the scheduling history that referenced them, and
+    store objects for superseded snapshots beyond the newest
+    `VAPN_RETAIN_SNAPSHOTS` (default 5). The published snapshot is never pruned.
 
 If any stage fails, the build stops and the previously published snapshot stays
 fully in force. Workers never see a half-built snapshot.
@@ -260,8 +278,9 @@ availability.
   signals.
 - RPKI validation (is this origin cryptographically authorized for this
   prefix?) layered onto the existing MOAS/bogon validation.
-- Richer target selection (per-region representative sampling) behind the same
-  `targets` table shape — no worker or schema change needed.
+- Richer target selection (more than one representative per country, weighted by
+  address space) behind the same `targets` table shape — no worker or schema
+  change needed.
 
 ---
 

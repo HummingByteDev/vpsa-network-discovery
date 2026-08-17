@@ -33,7 +33,10 @@ which publishes:
 
 ## Cutting a release
 
-1. `main` is green in CI; the demo docs are current.
+1. `main` is green in CI; the demo docs are current, and
+   [`CHANGELOG.md`](../../CHANGELOG.md) has an entry for the release —
+   including its compatibility table, which is what tells an operator whether
+   an upgrade needs anything beyond `docker compose up -d`.
 2. `git tag v1.2.3 && git push origin v1.2.3` — the workflow does the rest.
 3. Upgrade the platform (below) and watch one consensus window.
 4. Workers pick the new image up via `vapn update` or their auto-update timer

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ const usage = `vapn — VPS Advisor Probe Network worker
 Usage: vapn <command>
 
   install      set up and start a worker (interactive)
+  reconfigure  change settings on an installed worker (keeps its identity)
   status       worker health at a glance
   doctor       run the system checks
   logs [-f]    worker logs
@@ -72,6 +74,8 @@ func main() {
 	switch os.Args[1] {
 	case "install":
 		err = cmdInstall()
+	case "reconfigure":
+		err = cmdReconfigure()
 	case "status":
 		err = cmdStatus()
 	case "doctor":
@@ -131,16 +135,39 @@ func loadConfig(must bool) conf {
 	return c
 }
 
+// managedKeys are the settings `vapn` itself writes, in the order they appear
+// in the file.
+var managedKeys = []string{"VAPN_COORDINATOR_URL", "VAPN_WORKER_NAME",
+	"VAPN_SNAPSHOT_PUBLIC_KEY", "VAPN_WORKER_IMAGE", "VAPN_ENROLLMENT_TOKEN"}
+
+// save rewrites config.env from scratch, which is what makes repeated
+// `vapn install` / `vapn reconfigure` runs idempotent: one line per setting,
+// always the same order, never an appended duplicate. Settings the operator
+// added by hand are carried across rather than silently dropped.
 func (c conf) save() error {
 	if err := os.MkdirAll(home(), 0o700); err != nil {
 		return err
 	}
+	managed := map[string]bool{}
 	var b strings.Builder
 	b.WriteString("# VAPN worker configuration (managed by `vapn`)\n")
-	for _, k := range []string{"VAPN_COORDINATOR_URL", "VAPN_WORKER_NAME",
-		"VAPN_SNAPSHOT_PUBLIC_KEY", "VAPN_WORKER_IMAGE", "VAPN_ENROLLMENT_TOKEN"} {
+	for _, k := range managedKeys {
+		managed[k] = true
 		if v, ok := c[k]; ok && v != "" {
 			fmt.Fprintf(&b, "%s=%s\n", k, v)
+		}
+	}
+	extra := make([]string, 0, len(c))
+	for k, v := range c {
+		if !managed[k] && v != "" {
+			extra = append(extra, k)
+		}
+	}
+	if len(extra) > 0 {
+		sort.Strings(extra)
+		b.WriteString("\n# added by hand; preserved across vapn reconfigure\n")
+		for _, k := range extra {
+			fmt.Fprintf(&b, "%s=%s\n", k, c[k])
 		}
 	}
 	return os.WriteFile(configPath(), []byte(b.String()), 0o600)
@@ -210,6 +237,60 @@ func prompt(rd *bufio.Reader, label, def string) string {
 	return line
 }
 
+// mask renders a secret-ish value for display: enough to recognise which value
+// is stored, never enough to use it. Empty stays visibly empty so "not set" and
+// "set to something" are distinguishable.
+func mask(v string) string {
+	if v == "" {
+		return ""
+	}
+	if len(v) <= 10 {
+		return strings.Repeat("*", len(v))
+	}
+	return v[:5] + "********" + v[len(v)-5:]
+}
+
+// promptSecret shows the stored value masked and keeps it on an empty answer,
+// so an operator can step through a reconfiguration without re-entering — or
+// even knowing — the credentials already in place.
+func promptSecret(rd *bufio.Reader, label, current string) string {
+	shown := mask(current)
+	if shown != "" {
+		fmt.Printf("%s [%s] (Enter keeps it): ", label, shown)
+	} else {
+		fmt.Printf("%s: ", label)
+	}
+	line, _ := rd.ReadString('\n')
+	if line = strings.TrimSpace(line); line == "" {
+		return current
+	}
+	return line
+}
+
+// promptConfig asks for every worker setting, defaulting to what is already
+// configured. Shared by install and reconfigure so both offer the same
+// settings, the same defaults and the same secret handling.
+func promptConfig(rd *bufio.Reader, c conf, askToken bool) {
+	hostname, _ := os.Hostname()
+	c["VAPN_COORDINATOR_URL"] = prompt(rd, "Coordinator URL",
+		orDefault(c["VAPN_COORDINATOR_URL"], "https://probes.vpsadvisor.com"))
+	c["VAPN_WORKER_NAME"] = prompt(rd, "Worker name", orDefault(c["VAPN_WORKER_NAME"], hostname))
+	c["VAPN_SNAPSHOT_PUBLIC_KEY"] = promptSecret(rd, "Snapshot public key", c["VAPN_SNAPSHOT_PUBLIC_KEY"])
+	c["VAPN_WORKER_IMAGE"] = orDefault(os.Getenv("VAPN_WORKER_IMAGE"),
+		orDefault(c["VAPN_WORKER_IMAGE"], "ghcr.io/hummingbytedev/vapn-worker:latest"))
+	if askToken {
+		c["VAPN_ENROLLMENT_TOKEN"] = promptSecret(rd, "Enrollment token", c["VAPN_ENROLLMENT_TOKEN"])
+	}
+}
+
+// registered reports whether this machine already holds a worker identity.
+// Once it does, no enrollment token is ever asked for again: the token is
+// one-time, and the identity is what must be preserved.
+func registered() bool {
+	_, err := os.Stat(filepath.Join(stateDir(), "worker.id"))
+	return err == nil
+}
+
 func cmdInstall() error {
 	fmt.Println("VAPN worker setup — you'll need an enrollment token")
 	fmt.Println("(create one on your VPS Advisor dashboard under My Workers).")
@@ -217,16 +298,7 @@ func cmdInstall() error {
 
 	c := loadConfig(false)
 	rd := bufio.NewReader(os.Stdin)
-	hostname, _ := os.Hostname()
-
-	c["VAPN_COORDINATOR_URL"] = prompt(rd, "Coordinator URL", orDefault(c["VAPN_COORDINATOR_URL"], "https://probes.vpsadvisor.com"))
-	c["VAPN_WORKER_NAME"] = prompt(rd, "Worker name", orDefault(c["VAPN_WORKER_NAME"], hostname))
-	c["VAPN_SNAPSHOT_PUBLIC_KEY"] = prompt(rd, "Snapshot public key", c["VAPN_SNAPSHOT_PUBLIC_KEY"])
-	c["VAPN_WORKER_IMAGE"] = orDefault(os.Getenv("VAPN_WORKER_IMAGE"),
-		orDefault(c["VAPN_WORKER_IMAGE"], "ghcr.io/hummingbytedev/vapn-worker:latest"))
-	if _, err := os.Stat(filepath.Join(stateDir(), "worker.id")); err != nil {
-		c["VAPN_ENROLLMENT_TOKEN"] = prompt(rd, "Enrollment token", c["VAPN_ENROLLMENT_TOKEN"])
-	}
+	promptConfig(rd, c, !registered())
 
 	fmt.Println("\nSystem check")
 	ok, err := runDoctor(c)
@@ -279,6 +351,79 @@ func cmdInstall() error {
 	fmt.Println("\nUseful commands: vapn status · vapn logs -f · vapn pause · vapn update")
 	// Token is one-time; drop it from disk after successful registration.
 	if st.WorkerID != "" && c["VAPN_ENROLLMENT_TOKEN"] != "" {
+		delete(c, "VAPN_ENROLLMENT_TOKEN")
+		_ = c.save()
+	}
+	return nil
+}
+
+// cmdReconfigure walks an installed worker's settings again, keeping anything
+// the operator does not change.
+//
+// There is deliberately no separate `reinstall`. Everything a reinstall would
+// do here is already covered without risking the one thing that cannot be
+// recreated: `reconfigure` regenerates the compose file and recreates the
+// container, `update` refreshes the image with a health gate and rollback, and
+// `uninstall` removes the installation. The worker's private key and
+// registered identity are never touched by any of them — losing that key means
+// enrolling as a brand-new worker and starting its trust history from zero.
+func cmdReconfigure() error {
+	c := loadConfig(true) // exits with install instructions if nothing is here
+	rd := bufio.NewReader(os.Stdin)
+
+	fmt.Println("Reconfiguring the worker in", home())
+	st := worker.State{Dir: stateDir()}
+	if id, err := st.WorkerID(); err == nil && id != "" {
+		fmt.Println("Worker identity:", id, "(preserved — not re-enrolled)")
+	}
+	fmt.Println("Press Enter to keep a value as it is.")
+	fmt.Println()
+
+	before := c["VAPN_WORKER_IMAGE"]
+	promptConfig(rd, c, !registered())
+
+	fmt.Println("\nSystem check")
+	ok, err := runDoctor(c)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		// Nothing has been written yet, so a failed check leaves the running
+		// worker exactly as it was.
+		return fmt.Errorf("system checks failed — nothing was changed; fix the ✗ items above and re-run vapn reconfigure")
+	}
+
+	if err := c.save(); err != nil {
+		return err
+	}
+	if err := writeCompose(c); err != nil {
+		return err
+	}
+
+	fmt.Println("\nApplying")
+	if c["VAPN_WORKER_IMAGE"] != before {
+		if out, err := composeQuiet("pull"); err != nil {
+			fmt.Println("  (image pull skipped:", firstLine(out)+")")
+		}
+	}
+	restartedAt := time.Now()
+	if out, err := composeQuiet("up", "-d"); err != nil {
+		return fmt.Errorf("could not restart worker: %s", out)
+	}
+
+	status, err := waitStatus(120*time.Second, restartedAt)
+	if err != nil {
+		fmt.Println("✗ The worker restarted but hasn't reported in yet.")
+		fmt.Println("  Watch it with: vapn logs -f")
+		return nil
+	}
+	fmt.Printf("✓ Worker healthy (%s)\n", renderState(status.State))
+	if status.SnapshotVersion != "" {
+		fmt.Println("✓ Routing snapshot", status.SnapshotVersion)
+	}
+	// A one-time token is spent by registration; leaving it on disk would be a
+	// stale secret and a re-enrolment hazard.
+	if status.WorkerID != "" && c["VAPN_ENROLLMENT_TOKEN"] != "" {
 		delete(c, "VAPN_ENROLLMENT_TOKEN")
 		_ = c.save()
 	}

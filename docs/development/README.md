@@ -122,8 +122,15 @@ make check       # vet + test + build
   `postgres://vapn:vapn-dev@localhost:5433/vapn_test`; override with
   `VAPN_TEST_DB_DSN`.
 - Unit tests live beside code (`*_test.go`). Notable suites: `aggregate` (the
-  consensus SQL), `wireauth` (signing/replay), `mrtreader`, `bogon`,
-  `coordinator` (security, scheduler simulation), `mockadvisor` (contract).
+  consensus SQL, including per-country rollups), `builder` (address-space
+  accounting and country distribution), `wireauth` (signing/replay),
+  `mrtreader`, `bogon`, `coordinator` (security, scheduler simulation),
+  `mockadvisor` (contract), `cmd/vapn` (config idempotency, secret masking).
+- `internal/e2e` drives the whole pipeline over one realistic provider
+  (AS200019, ten countries): BGP announcements in, published status document
+  out. Run it when changing anything the builder and the aggregator share.
+- `deploy/prod` has a test but no code: it guards the deployment files' one
+  easily-broken property, that the edge ports stay configurable.
 - **Contract parity:** the `mockadvisor` tests encode the
   [integration contract](../integration/django-integration.md) — the same
   expectations the website's staging must satisfy.

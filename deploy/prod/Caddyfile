@@ -6,6 +6,20 @@
 #                                           remove this block if not running it)
 # Everything else — /metrics, /healthz, postgres, aggregator — is reachable
 # only on the internal Docker network.
+#
+# The edge ports default to 80/443 and are overridable (VAPN_CADDY_HTTP_PORT /
+# VAPN_CADDY_HTTPS_PORT) for a machine that already serves something there.
+# Caddy is told the real ports rather than being port-mapped behind its back,
+# so it issues correct redirects and only attempts certificate challenges that
+# can actually succeed: the HTTP-01 challenge needs public port 80 and
+# TLS-ALPN-01 needs public port 443, and Caddy skips a challenge whose port has
+# been moved. Moving 443 therefore means bringing your own certificate or DNS
+# challenge — see docs/operations/deployment.md#running-alongside-another-service.
+
+{
+	http_port {$VAPN_CADDY_HTTP_PORT:80}
+	https_port {$VAPN_CADDY_HTTPS_PORT:443}
+}
 
 {$VAPN_DOMAIN} {
 	encode gzip

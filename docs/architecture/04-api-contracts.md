@@ -53,19 +53,28 @@ endpoints use the site's existing session auth + new permissions.
 
 | Method & path | Purpose |
 |---|---|
-| `PUT /api/v1/monitoring/results/providers/{provider_id}` | Upsert aggregated status document (global + per-region verdicts, metrics, confidence). |
+| `PUT /api/v1/monitoring/results/providers/{provider_id}` | Upsert aggregated status document (global verdict, per-country verdicts, IPv4 network distribution, per-network health). |
 | `POST /api/v1/monitoring/results/anomalies` | Open/update/resolve anomaly events (drives "recent routing instability" UI). |
 | `POST /api/v1/monitoring/results/history` | Periodic rollup batches for historical charts. |
 | `POST /api/v1/monitoring/telemetry/fleet` | Fleet summary for admin dashboard (worker counts by state/version/region, snapshot version in force, security event counts). |
 
 ```json
-// PUT …/results/providers/7f9c…  (body)
-{ "as_of": "2026-07-18T08:05:00Z", "global": { "verdict": "healthy",
-    "confidence": 0.97, "rtt_p50_ms": 21.4, "loss_rate": 0.001 },
-  "regions": [ { "region": "eu-west", "verdict": "healthy", "confidence": 0.99 },
-               { "region": "ap-south", "verdict": "insufficient_data", "confidence": 0 } ],
-  "active_anomalies": [] }
+// PUT …/results/providers/alexhost-com  (body, abridged)
+{ "provider_id": "alexhost-com", "as_of": "2026-08-17T08:05:00Z",
+  "global":   { "verdict": "degraded", "confidence": 0.91, "metrics": { "…": 0 } },
+  "regions":  [ { "region": "MD", "country": "Moldova", "verdict": "healthy",
+                  "coverage": { "targets_total": 10, "targets_measured": 10 } } ],
+  "network":  { "asns": [200019], "ipv4_addresses": 39680,
+                "countries": [ { "country_code": "MD", "ipv4_share_pct": 54.19 } ] },
+  "networks": [ { "prefix": "176.123.0.0/21", "country_code": "MD",
+                  "city": "Chisinau", "verdict": "healthy" } ] }
 ```
+
+`region` is an ISO 3166-1 alpha-2 country code (`ZZ` = address space the GeoIP
+database does not place). **`network` is derived from BGP and GeoIP, not from
+measurements** — it describes where a provider's addresses are, and exists even
+when nobody has probed them; `regions`/`networks` describe how those addresses
+behave. Field-by-field schema: [API reference](../api/README.md#a4-results-ingestion-platform-pushes--idempotent).
 
 ### Required website changes (summary for the integration guide)
 

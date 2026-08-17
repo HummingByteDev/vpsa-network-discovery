@@ -21,11 +21,11 @@ stream applied by the `migrate` job).
 
 ```mermaid
 flowchart LR
-  routing["routing<br/>provider, asn, prefix,<br/>snapshot, probe_target"]
+  routing["routing<br/>provider, asn, prefix, snapshot,<br/>probe_target, provider_geo"]
   registry["registry<br/>worker, worker_key, enrollment_token,<br/>trust_score, trust_event, replay_nonce"]
   scheduling["scheduling<br/>assignment, lease"]
   measurements["measurements<br/>observation (partitioned),<br/>upload_batch"]
-  aggregation["aggregation<br/>consensus_window, provider_status,<br/>anomaly, worker_agreement, publication_outbox"]
+  aggregation["aggregation<br/>consensus_window, provider_status, target_status,<br/>anomaly, worker_agreement, publication_outbox"]
   audit["audit<br/>event (append-only)"]
   routing --> scheduling --> measurements --> aggregation
   registry --> scheduling
@@ -40,10 +40,20 @@ per-snapshot and immutable — diffing snapshots yields routing-churn signals.
 | Table | Purpose | Key columns |
 |---|---|---|
 | `snapshot` | A versioned routing build | `version`, `status` (building/published/superseded/failed), `asn_count`, `prefix_count_*`, `artifact_sha256`, `artifact_signature` |
-| `provider` | Cache of VPS Advisor providers | `provider_id` (uuid, verbatim), `monitoring_enabled`, `priority`, `delisted_at` |
+| `provider` | Cache of VPS Advisor providers | `provider_id` (**opaque text**, stored verbatim — VPS Advisor publishes its slug; see migration `0009`), `monitoring_enabled`, `priority`, `delisted_at` |
 | `asn` | Monitored ASNs → provider | `asn` (pk), `provider_id`, registry name/country |
 | `prefix` | Prefixes per snapshot | `snapshot_id`, `prefix` (cidr), `origin_asn`, geo columns, `flags` jsonb (bogon, moas_conflict) — GiST index on `prefix` |
-| `probe_target` | Derived probeable addresses | `snapshot_id`, `provider_id`, `prefix_id`, `address` (inet), `rationale`, `active` |
+| `probe_target` | Derived probeable addresses | `snapshot_id`, `provider_id`, `prefix_id`, `address` (inet), `rationale`, `active`, `geo_country`/`geo_city` (denormalized from the prefix, so measurements can be attributed to a country with one join) |
+| `provider_geo` | A provider's address space by country, per snapshot | `snapshot_id`, `provider_id`, `country_code` (ISO-3166-1, or `ZZ` = unplaced), `country_name`, `continent_*`, `ipv4_addresses`, `ipv4_share`, `ipv6_net64s`, `prefix_count_*`, `target_count` |
+
+**`provider_geo` counts *exclusive* address space.** A more-specific
+announcement's addresses are subtracted from the covering announcement, so
+`/16` + `/17` + `/24` is 65 536 addresses, not 98 560. `ipv4_share` is the
+percentage of the provider's deduplicated IPv4 space — address-weighted, never
+prefix-counted. `ipv6_net64s` counts `/64` networks because IPv6 address counts
+do not fit in any integer type; announcements longer than `/64` contribute
+none. How the numbers are produced:
+[`internal/builder/distribution.go`](../../internal/builder/distribution.go).
 
 ## Schema `registry`
 
@@ -86,9 +96,18 @@ aggregator.
 |---|---|---|
 | `consensus_window` | Trust-weighted aggregate per (provider, region, probe_type, window) | `verdict`, `confidence`, `worker_count`, `dissent_ratio`, `loss_rate`, `rtt_p50/p95/p99` — unique on the tuple (idempotent settle) |
 | `provider_status` | Current rollup, one row per (provider, region) | `verdict`, `confidence`, `since`, `metrics` jsonb, `updated_at` |
+| `target_status` | Current health of each probed address (= each monitored network) | `provider_id`, `target` (inet), `region`, `prefix`, `origin_asn`, `city`, `verdict`, `availability`, `loss_rate`, `rtt_p50/p95`, `worker_count`, `last_measured_at` |
 | `anomaly` | Detected events | `kind` (reachability_loss/latency_regression/routing_churn), `severity`, `opened_at`, `resolved_at`, `evidence` jsonb |
 | `worker_agreement` | Per-worker agreement vs settled consensus | `worker_id`, `window_start`, `agreement`, `targets` — feeds trust scoring |
 | `publication_outbox` | At-least-once push to VPS Advisor | `kind`, `payload` jsonb, `attempts`, `next_attempt_at`, `acked_at` |
+
+`region` is `global` **or an ISO 3166-1 alpha-2 country code** (`ZZ` for
+addresses the GeoIP database does not place). Each settled window writes one
+global row plus one row per country the provider was measured in, from the same
+votes — so a country-level outage is visible without distorting the global
+verdict, and a country nobody probed simply has no row rather than a guessed
+one. `target_status` is current-state only, bounded by the number of live
+targets; the history is in `consensus_window`.
 
 ## Schema `audit`
 
@@ -112,6 +131,8 @@ to the VPS Advisor admin dashboard via [fleet telemetry](../integration/django-i
 | `0006_audit.sql` | audit schema |
 | `0007_upload_batch.sql` | upload batch idempotency |
 | `0008_worker_agreement.sql` | per-worker agreement table |
+| `0009_provider_id_text.sql` | provider identifiers become opaque text |
+| `0010_geographic.sql` | `routing.provider_geo`, geo columns on `probe_target`, `aggregation.target_status` |
 
 Migrations are backward-compatible one version back (expand → migrate →
 contract) so coordinator replicas can roll during an upgrade. Applied by

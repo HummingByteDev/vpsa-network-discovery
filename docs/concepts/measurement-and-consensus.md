@@ -102,7 +102,10 @@ sure" than cry wolf. Here's the actual model (see `internal/aggregate`):
 
 1. **Window the data.** Group observations into fixed time windows (default
    **5 minutes**). Everything below happens per window, per provider, per
-   region, per probe type.
+   region, per probe type — where a **region** is the country of the address
+   being measured. The same votes produce a global verdict and one verdict per
+   country, so a provider that is fine everywhere except Bulgaria says exactly
+   that. → [regional verdicts](geoip.md#regional-verdicts-made-concrete)
 2. **Per target, workers vote by trust weight.** Each worker's observations of a
    target reduce to an "ok-ratio" (fraction reachable). Workers vote with their
    [trust](#trust) as weight (with a small floor so brand-new workers still

@@ -33,6 +33,7 @@ vapn <command>
 | Command | Description |
 |---|---|
 | `install` | Set up and start a worker (interactive) |
+| `reconfigure` | Change settings on an installed worker, keeping its identity |
 | `status` | Worker health at a glance |
 | `doctor` | Run the system checks |
 | `logs [-f]` | Worker logs (`-f` to follow) |
@@ -46,6 +47,34 @@ vapn <command>
 
 Home directory: `~/.vapn` (override with `VAPN_HOME`). Per-command detail and
 recipes: [operating a worker](../worker/operations.md).
+
+### `vapn reconfigure`
+
+Walks the same questions as `install` — coordinator URL, worker name, snapshot
+public key, worker image — with the current value offered as the default.
+**Press Enter to keep a value.** Then it re-runs the system checks, rewrites
+`~/.vapn/config.env` and the generated compose file, recreates the container,
+and waits for the worker to report healthy.
+
+- **Identity is preserved.** The worker's private key, worker ID and trust
+  history are never touched; a worker that has already registered is not asked
+  for an enrollment token again (the token is one-time, and re-enrolling would
+  start its trust history from zero).
+- **Secrets are shown masked** (`TbP5t********la/rw=`) so you can tell which
+  value is stored without it being printed in full, and kept on an empty answer
+  so you never have to re-enter one to change something else.
+- **Safe to run repeatedly.** The config file is rewritten from scratch in a
+  fixed order — no appended duplicates, no regenerated credentials, no change
+  to persistent state. Settings you added to `config.env` by hand are carried
+  across.
+- **Nothing is written if the checks fail**, so a failed reconfiguration leaves
+  the running worker exactly as it was.
+
+There is no `reinstall` command: `reconfigure` covers configuration and
+container recreation, [`update`](../worker/operations.md) covers the image
+(health-gated, with rollback), and `uninstall` covers removal. A separate
+"reinstall" would only risk the one thing that cannot be recreated — the
+worker's identity.
 
 ---
 

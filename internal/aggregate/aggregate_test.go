@@ -131,7 +131,7 @@ func TestConsensusOutvotesLiar(t *testing.T) {
 	var verdict string
 	var confidence float64
 	if err := pool.QueryRow(ctx, `select verdict, confidence from aggregation.provider_status
-		where provider_id = $1`, provider).Scan(&verdict, &confidence); err != nil {
+		where provider_id = $1 and region = 'global'`, provider).Scan(&verdict, &confidence); err != nil {
 		t.Fatal(err)
 	}
 	if verdict != "healthy" {
@@ -210,7 +210,7 @@ func TestOutageVerdictAndAnomaly(t *testing.T) {
 	}
 	var verdict string
 	if err := pool.QueryRow(ctx, `select verdict from aggregation.provider_status
-		where provider_id = $1`, provider).Scan(&verdict); err != nil {
+		where provider_id = $1 and region = 'global'`, provider).Scan(&verdict); err != nil {
 		t.Fatal(err)
 	}
 	if verdict != "outage" {
@@ -246,7 +246,7 @@ func TestOutageVerdictAndAnomaly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `select verdict from aggregation.provider_status
-		where provider_id = $1`, provider).Scan(&verdict); err != nil {
+		where provider_id = $1 and region = 'global'`, provider).Scan(&verdict); err != nil {
 		t.Fatal(err)
 	}
 	if verdict != "healthy" {
@@ -288,7 +288,7 @@ func TestInsufficientData(t *testing.T) {
 	var verdict string
 	var confidence float64
 	if err := pool.QueryRow(ctx, `select verdict, confidence from aggregation.provider_status
-		where provider_id = $1`, provider).Scan(&verdict, &confidence); err != nil {
+		where provider_id = $1 and region = 'global'`, provider).Scan(&verdict, &confidence); err != nil {
 		t.Fatal(err)
 	}
 	if verdict != "insufficient_data" || confidence != 0 {
@@ -308,15 +308,23 @@ func TestWindowIdempotent(t *testing.T) {
 	if err := e.ComputeWindow(ctx, windowStart); err != nil {
 		t.Fatal(err)
 	}
+	var first int
+	if err := pool.QueryRow(ctx,
+		`select count(*) from aggregation.consensus_window`).Scan(&first); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.ComputeWindow(ctx, windowStart); err != nil {
 		t.Fatal(err)
 	}
-	var windows int
-	if err := pool.QueryRow(ctx,
-		`select count(*) from aggregation.consensus_window`).Scan(&windows); err != nil {
+	var windows, global int
+	if err := pool.QueryRow(ctx, `select count(*),
+		count(*) filter (where region = 'global')
+		from aggregation.consensus_window`).Scan(&windows, &global); err != nil {
 		t.Fatal(err)
 	}
-	if windows != 1 {
-		t.Fatalf("windows = %d, want 1 after recompute", windows)
+	// One global row plus one per region, and recomputing adds nothing.
+	if windows != first || global != 1 {
+		t.Fatalf("windows = %d (was %d), global = %d, want unchanged and 1 global",
+			windows, first, global)
 	}
 }

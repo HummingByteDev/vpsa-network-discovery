@@ -34,6 +34,7 @@ func main() {
 	cfg2 := cfg.Duration("TRUST_INTERVAL", time.Minute)
 	windowSeconds := cfg.Int("WINDOW_SECONDS", 300)
 	minWorkers := cfg.Int("MIN_WORKERS", 3)
+	targetWindow := cfg.Duration("TARGET_HEALTH_WINDOW", 24*time.Hour)
 	advisorURL := cfg.String("ADVISOR_URL", "")
 	advisorToken := cfg.String("ADVISOR_TOKEN", "")
 	if err := cfg.Err(); err != nil {
@@ -55,6 +56,7 @@ func main() {
 	engine := &aggregate.Engine{Pool: pool, Cfg: aggregate.Config{
 		WindowSeconds: windowSeconds,
 		MinWorkers:    minWorkers,
+		TargetWindow:  targetWindow,
 	}, Log: log}
 	go engine.Run(ctx)
 

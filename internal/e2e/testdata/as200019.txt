@@ -1,0 +1,102 @@
+# AS200019 (AlexHost SRL) announced IPv4 netblocks and the country MaxMind
+# places them in. Source: the reference dataset in CLAUDE.md §4.
+# Format: <prefix> <ISO 3166-1 alpha-2> <country name>
+131.123.37.0/24 BG Bulgaria
+131.123.38.0/24 BG Bulgaria
+131.123.39.0/24 BG Bulgaria
+131.123.40.0/24 BG Bulgaria
+131.123.41.0/24 BG Bulgaria
+131.123.42.0/24 BG Bulgaria
+131.123.43.0/24 BG Bulgaria
+37.221.65.0/24 BG Bulgaria
+131.123.36.0/24 FR France
+143.246.208.0/24 FR France
+143.246.209.0/24 FR France
+143.246.210.0/24 FR France
+143.246.211.0/24 FR France
+143.246.212.0/24 FR France
+131.123.32.0/24 MD Moldova
+131.123.34.0/24 MD Moldova
+131.123.44.0/22 MD Moldova
+131.123.48.0/20 MD Moldova
+143.246.221.0/24 MD Moldova
+176.123.0.0/21 MD Moldova
+176.123.8.0/22 MD Moldova
+176.125.242.0/23 MD Moldova
+37.221.67.0/24 MD Moldova
+45.145.0.0/24 MD Moldova
+5.63.19.0/24 MD Moldova
+80.96.108.0/24 MD Moldova
+80.96.112.0/24 MD Moldova
+80.96.113.0/24 MD Moldova
+80.96.58.0/24 MD Moldova
+80.96.59.0/24 MD Moldova
+80.96.68.0/24 MD Moldova
+80.97.124.0/24 MD Moldova
+80.97.128.0/20 MD Moldova
+81.180.92.0/24 MD Moldova
+81.180.93.0/24 MD Moldova
+85.120.216.0/24 MD Moldova
+85.120.217.0/24 MD Moldova
+85.120.252.0/24 MD Moldova
+85.120.253.0/24 MD Moldova
+85.120.254.0/24 MD Moldova
+85.120.81.0/24 MD Moldova
+85.121.149.0/24 MD Moldova
+85.121.176.0/24 MD Moldova
+85.121.177.0/24 MD Moldova
+85.121.178.0/24 MD Moldova
+85.121.183.0/24 MD Moldova
+85.121.4.0/24 MD Moldova
+85.121.5.0/24 MD Moldova
+85.122.114.0/24 MD Moldova
+85.137.249.0/24 MD Moldova
+91.208.162.0/24 MD Moldova
+91.208.184.0/24 MD Moldova
+91.208.197.0/24 MD Moldova
+91.208.206.0/24 MD Moldova
+132.243.166.0/24 NL Netherlands
+132.243.172.0/24 NL Netherlands
+176.116.0.0/24 NL Netherlands
+45.148.244.0/24 NL Netherlands
+45.150.110.0/24 NL Netherlands
+45.93.8.0/24 NL Netherlands
+5.181.0.0/24 NL Netherlands
+5.252.20.0/24 NL Netherlands
+85.137.248.0/24 NL Netherlands
+93.185.167.0/24 NL Netherlands
+146.19.213.0/24 RU Russia
+159.253.120.0/24 RU Russia
+45.86.86.0/24 RU Russia
+45.93.9.0/24 RU Russia
+91.199.133.0/24 RU Russia
+91.229.239.0/24 RU Russia
+94.103.188.0/24 RU Russia
+143.246.192.0/24 SE Sweden
+143.246.193.0/24 SE Sweden
+143.246.194.0/24 SE Sweden
+143.246.195.0/24 SE Sweden
+143.246.196.0/24 SE Sweden
+143.246.197.0/24 SE Sweden
+143.246.198.0/24 SE Sweden
+143.246.199.0/24 SE Sweden
+132.243.161.0/24 CH Switzerland
+132.243.162.0/24 CH Switzerland
+132.243.174.0/24 CH Switzerland
+132.243.175.0/24 CH Switzerland
+2.59.219.0/24 CH Switzerland
+132.243.173.0/24 TR Turkey
+131.123.35.0/24 GB United Kingdom
+143.246.216.0/24 GB United Kingdom
+143.246.217.0/24 GB United Kingdom
+143.246.218.0/24 GB United Kingdom
+143.246.219.0/24 GB United Kingdom
+171.22.181.0/24 GB United Kingdom
+213.111.160.0/22 GB United Kingdom
+213.111.164.0/22 GB United Kingdom
+213.111.168.0/22 GB United Kingdom
+213.111.172.0/22 GB United Kingdom
+87.120.244.0/24 GB United Kingdom
+151.244.219.0/24 US United States
+46.16.34.0/24 US United States
+91.237.119.0/24 US United States

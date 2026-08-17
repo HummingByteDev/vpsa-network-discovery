@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,7 +73,34 @@ func migrationsDir(t *testing.T) string {
 	return dir
 }
 
+// bviewRecord is one RIB entry to write into a test bview: a prefix and the
+// origin ASNs announcing it (more than one = MOAS).
+type bviewRecord struct {
+	prefix  string
+	origins []uint32
+}
+
 func writeBview(t *testing.T) string {
+	t.Helper()
+	return writeBviewFrom(t, []bviewRecord{
+		// Provider A: clean /16, a MOAS /24, and a bogon that must be dropped.
+		{"185.0.0.0/16", []uint32{64500}},
+		{"185.1.0.0/24", []uint32{64500, 64999}},
+		{"10.5.0.0/16", []uint32{64500}},
+		// Provider B: one v4, one v6, and a too-long /25 (flagged, no target).
+		{"185.2.0.0/22", []uint32{64501}},
+		{"2001:41d0::/32", []uint32{64501}},
+		{"185.3.0.0/25", []uint32{64501}},
+		// Unmonitored provider prefix: ignored entirely.
+		{"8.8.8.0/24", []uint32{15169}},
+		// More-specific overlapping Provider A's /16: shares the first usable
+		// address 185.0.0.1 — target derivation must deduplicate (regression:
+		// real bview data violated the (snapshot_id, address) constraint).
+		{"185.0.0.0/17", []uint32{64500}},
+	})
+}
+
+func writeBviewFrom(t *testing.T, records []bviewRecord) string {
 	t.Helper()
 	var out []byte
 	add := func(subtype mrt.MRTSubTypeTableDumpv2, body mrt.Body) {
@@ -97,28 +125,20 @@ func writeBview(t *testing.T) string {
 
 	add(mrt.PEER_INDEX_TABLE, mrt.NewPeerIndexTable("10.0.0.0", "test",
 		[]*mrt.Peer{mrt.NewPeer("10.0.0.1", "10.0.0.1", 65001, true)}))
-	// Provider A: clean /16, a MOAS /24, and a bogon that must be dropped.
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(1, bgp.NewIPAddrPrefix(16, "185.0.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64500)}))
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(2, bgp.NewIPAddrPrefix(24, "185.1.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64500), entry(0, 65001, 64999)}))
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(3, bgp.NewIPAddrPrefix(16, "10.5.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64500)}))
-	// Provider B: one v4, one v6, and a too-long /25 (flagged, no target).
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(4, bgp.NewIPAddrPrefix(22, "185.2.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64501)}))
-	add(mrt.RIB_IPV6_UNICAST, mrt.NewRib(5, bgp.NewIPv6AddrPrefix(32, "2001:41d0::"),
-		[]*mrt.RibEntry{entry(0, 65001, 64501)}))
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(6, bgp.NewIPAddrPrefix(25, "185.3.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64501)}))
-	// Unmonitored provider prefix: ignored entirely.
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(7, bgp.NewIPAddrPrefix(24, "8.8.8.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 15169)}))
-	// More-specific overlapping Provider A's /16: shares the first usable
-	// address 185.0.0.1 — target derivation must deduplicate (regression:
-	// real bview data violated the (snapshot_id, address) constraint).
-	add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(8, bgp.NewIPAddrPrefix(17, "185.0.0.0"),
-		[]*mrt.RibEntry{entry(0, 65001, 64500)}))
+	for i, rec := range records {
+		p := netip.MustParsePrefix(rec.prefix)
+		entries := make([]*mrt.RibEntry, 0, len(rec.origins))
+		for _, origin := range rec.origins {
+			entries = append(entries, entry(0, 65001, origin))
+		}
+		if p.Addr().Is4() {
+			add(mrt.RIB_IPV4_UNICAST, mrt.NewRib(uint32(i+1),
+				bgp.NewIPAddrPrefix(uint8(p.Bits()), p.Addr().String()), entries))
+			continue
+		}
+		add(mrt.RIB_IPV6_UNICAST, mrt.NewRib(uint32(i+1),
+			bgp.NewIPv6AddrPrefix(uint8(p.Bits()), p.Addr().String()), entries))
+	}
 
 	path := filepath.Join(t.TempDir(), "bview.gz")
 	f, err := os.Create(path)

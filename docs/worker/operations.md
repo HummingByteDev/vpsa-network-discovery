@@ -13,6 +13,7 @@ with `VAPN_HOME`).
 | Command | One-liner |
 |---|---|
 | [`install`](#install) | Set up and start a worker (interactive) |
+| [`reconfigure`](#reconfigure) | Change settings, keep the worker's identity |
 | [`status`](#status) | Worker health at a glance |
 | [`doctor`](#doctor) | Run the system checks |
 | [`logs`](#logs) | Show worker logs (`-f` to follow) |
@@ -37,9 +38,48 @@ vapn install
 Interactive setup: runs the [system checks](#doctor), prompts for the
 **coordinator URL**, **worker name**, **snapshot public key** and **enrollment
 token**, writes `~/.vapn/config.env`, generates the compose file, starts the
-container, and waits for it to report in. Idempotent — safe to re-run to
-reconfigure. Usually invoked for you by `install.sh`. →
-[Installation](installation.md).
+container, and waits for it to report in. Idempotent — safe to re-run. Usually
+invoked for you by `install.sh`. → [Installation](installation.md).
+
+### `reconfigure`
+
+```sh
+vapn reconfigure
+```
+
+Change a setting on a worker that is already running — most often the
+coordinator URL (the platform moved, or its port changed) or the snapshot
+public key (the operator rotated it).
+
+It asks the same questions as `install`, showing what is configured now as the
+default: **press Enter to keep a value**. Secrets are displayed masked
+(`TbP5t********la/rw=`), so you can see *which* value is stored without it being
+printed, and you never have to re-enter one to change something else. Then it
+re-runs the system checks, rewrites the config and compose file, recreates the
+container and waits for the worker to report healthy.
+
+```
+Reconfiguring the worker in /home/you/.vapn
+Worker identity: 9f30… (preserved — not re-enrolled)
+Press Enter to keep a value as it is.
+
+Coordinator URL [https://probes.vpsadvisor.com]:
+Worker name [helsinki-1]:
+Snapshot public key [TbP5t********la/rw=] (Enter keeps it):
+```
+
+- **Your identity is safe.** The private key, worker ID and trust history are
+  never touched, and a worker that has already registered is not asked for an
+  enrollment token again — that token is one-time, and re-enrolling would make
+  this a brand-new worker with no trust history.
+- **Nothing is written if the checks fail**, so a mistake leaves the running
+  worker untouched.
+- **Safe to run as often as you like.** Nothing is duplicated, no credentials
+  are regenerated, and settings you added to `config.env` by hand are kept.
+
+There is no `reinstall`: this command covers configuration and container
+recreation, [`update`](#update) covers the image, and
+[`uninstall`](#uninstall) covers removal.
 
 ### `status`
 

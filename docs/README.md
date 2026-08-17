@@ -121,6 +121,7 @@ software developer who has simply never worked with Internet routing.
 | [Reference](reference/README.md) | CLI, configuration, environment variables, database schema, glossary |
 | [Project Handbook](handbook/README.md) | The entire system as one book, from networking fundamentals up |
 | [Demos](demos/) | A runnable walkthrough of each build phase |
+| [Changelog](../CHANGELOG.md) | What changed in each release, and what it means for compatibility |
 
 Where a fact appears in more than one place, one document is **authoritative**
 and the others link to it:
@@ -132,6 +133,7 @@ and the others link to it:
 | Components, data flows, design decisions | [Architecture](architecture/README.md) |
 | Every command | [CLI reference](reference/cli.md) |
 | Every term | [Glossary](reference/glossary.md) |
+| What changed between releases | [Changelog](../CHANGELOG.md) |
 
 ---
 

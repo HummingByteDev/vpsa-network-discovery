@@ -61,7 +61,10 @@ Shutdown: SIGTERM → release leases (`/assignments/release`) → flush upload q
    5. enrich: GeoIP (country/city/coords) from the builder's local GeoLite2 copy
       (fetched from MaxMind with the platform operator's own licence key)
    6. load into routing.* under new snapshot version   [status: building]
-   7. derive probe targets (representative addresses per prefix)
+   6b. country distribution: exclusive IPv4 space per provider per country
+       → routing.provider_geo (address-weighted shares; unplaced space = ZZ)
+   7. derive probe targets (representative address per prefix, country-tagged,
+      budget filled country by country so the whole footprint is measurable)
    8. sanity gate: |Δ prefix_count| vs previous > threshold? → hold for
       admin approval; else auto-continue
    9. export SQLite artifact + manifest (sha256, Ed25519 signature)
@@ -70,7 +73,8 @@ Shutdown: SIGTERM → release leases (`/assignments/release`) → flush upload q
   12. coordinator advertises new version in heartbeats
   13. scheduler drains assignments on removed targets, issues new ones
   14. workers download, verify, atomically swap
-  15. retention: prune superseded snapshots’ prefix rows after N versions
+  15. retention: prune superseded snapshots’ prefix rows, country distribution
+      and the scheduling history that referenced their targets, after N versions
 ```
 
 Failure handling: any step failing aborts the build, leaving the new snapshot row in
@@ -88,8 +92,11 @@ operator's own key — never redistributed; see risk R8) — a GeoIP update neve
 rebuild and vice versa.
 
 SQLite artifact contents (worker-facing subset only): `prefixes(prefix, origin_asn,
-provider_id, geo_country)`, `targets(address, provider_id, prefix)`, and a `meta`
-key/value table carrying `version` and `min_worker_version`. Workers use it for local
+provider_id, geo_country, geo_city)`, `targets(address, provider_id, prefix,
+geo_country, geo_city)`, and a `meta` key/value table carrying `version` and
+`min_worker_version`. Columns are only ever added, never removed or reordered —
+workers select what they know by name, so an older worker reads a newer
+artifact unchanged and `min_worker_version` need not move. Workers use it for local
 validation ("is this target still legitimate?") and enrichment — never for choosing
 targets.
 

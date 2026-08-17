@@ -312,12 +312,33 @@ you bring your own key rather than the project shipping them.
 | `VAPN_VERSION` | Which release of VAPN to run | `latest`, or a specific tag such as `v1.2.0` once you are in production |
 | `VAPN_GRAFANA_PASSWORD` | Password for the optional dashboards | Any password, if you plan to enable monitoring |
 
+### Group 8 — Only if this machine already runs a web server
+
+Leave these alone unless something else on this VPS is already using port 80 or
+443. If it is, the stack will refuse to start in Step 5 with `address already
+in use`, and these are the way out.
+
+| Setting | What it does | What to enter |
+|---|---|---|
+| `VAPN_CADDY_HTTP_PORT` | Public HTTP port for VAPN | `80` normally; e.g. `8080` if something else owns port 80 |
+| `VAPN_CADDY_HTTPS_PORT` | Public HTTPS port for VAPN | `443` normally |
+
+> ⚠️ **Keep `VAPN_CADDY_HTTPS_PORT=443` if you possibly can.** Your HTTPS
+> certificate is obtained automatically by proving you control the domain over
+> port 80 or port 443 — moving *only* the HTTP port is fine, because port 443
+> can still do it alone. Moving 443 as well means certificates can no longer be
+> issued automatically, and you have to put VAPN behind the server that owns
+> 443 or supply your own certificate. Both arrangements are described in
+> [running alongside another service](../operations/deployment.md#running-alongside-another-service).
+> Whatever address workers must use — port included — is the one you give them
+> for `vapn install`.
+
 Save and close the file (in `nano`: `Ctrl+O`, `Enter`, `Ctrl+X`).
 
 > **There are more settings than these.** Everything above is what an ordinary
-> operator needs. Tuning knobs — how many probe targets per provider, how
-> aggressive the safety check is, how many old snapshots to keep — have
-> sensible defaults and are documented in the
+> operator needs. Tuning knobs — how many probe targets per provider and per
+> country, how aggressive the safety check is, how many old snapshots to keep —
+> have sensible defaults and are documented in the
 > [configuration reference](../reference/configuration.md#builder).
 
 ### Verify
@@ -460,6 +481,29 @@ docker compose exec postgres psql -U vapn -d vapn -c \
 **Healthy result:** one row with `status = published`, a recent `published_at`,
 prefix counts in the thousands (the exact number depends on how many providers
 you monitor), and `signed = t`.
+
+### Check the geographic distribution
+
+```sh
+docker compose exec postgres psql -U vapn -d vapn -c \
+  "select provider_id, country_code, ipv4_addresses,
+          round(ipv4_share::numeric, 1) as pct, target_count
+   from routing.provider_geo
+   order by provider_id, ipv4_addresses desc limit 15;"
+```
+
+> This is the build's main product besides the address list itself: where each
+> provider's IPv4 space actually is. One row per provider per country.
+
+**Healthy result:** several rows per provider, percentages that add up to 100
+for each provider, and a `target_count` of at least 1 in each country — that is
+what lets the platform report a per-country verdict later.
+
+**If every row says `ZZ`:** `ZZ` means "the location database placed none of
+it". The GeoIP database was missing or empty when the build ran — see [the
+location database is missing](#the-location-database-is-missing), then run the
+build again. A few `ZZ` rows alongside real countries is normal; MaxMind does
+not place every address.
 
 ### Check the published file
 
@@ -692,6 +736,41 @@ A failed build is never an outage — take your time.
 > examples means either `/tmp/vapn-build.log` or the `journalctl` output.
 > Long-running services (`coordinator`, `aggregator`, `postgres`) do work with
 > `docker compose logs`.
+
+### A port is already in use
+
+**What it usually means:** something else on this machine is already serving on
+port 80 or 443. The message looks like:
+
+```
+Error response from daemon: failed to set up container networking: driver failed
+programming external connectivity on endpoint vapn-caddy-1: failed to bind host
+port 0.0.0.0:80/tcp: address already in use
+```
+
+**What to check:** which program owns the port.
+
+```sh
+sudo ss -lptn 'sport = :80'
+```
+
+**A healthy result** is empty output — nothing is listening. If it names
+another web server (nginx, Apache, another Caddy), you have two choices: stop
+that service, or move VAPN's ports.
+
+**What to do next:** to move VAPN, set the port in `.env` and start again:
+
+```sh
+cd /opt/vapn/deploy/prod
+echo 'VAPN_CADDY_HTTP_PORT=8080' >> .env
+docker compose up -d
+```
+
+Certificates still issue automatically as long as port **443** is left alone.
+If 443 is also taken, read [running alongside another
+service](../operations/deployment.md#running-alongside-another-service) before
+changing `VAPN_CADDY_HTTPS_PORT` — automatic certificates stop working, and the
+port becomes part of the address you give worker operators.
 
 ### Docker isn't available
 

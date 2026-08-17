@@ -133,6 +133,7 @@ Run as a one-shot job. See [Install the builder](../builder/installation.md).
 | `VAPN_RIS_BVIEW_MAX_AGE` | duration | `6h` | Re-download when the cached copy is older than this. A fresher copy is reused as-is |
 | `VAPN_GEOIP_CITY_MMDB` | string | — | Path to GeoLite2-City. **Empty skips enrichment** with a warning; set-but-missing is a build failure |
 | `VAPN_MAX_TARGETS_PER_PROVIDER` | int | `100` | Probe-target cap, **per provider per address family** |
+| `VAPN_MAX_TARGETS_PER_COUNTRY` | int | `10` | Probe-target cap **per country** within that budget. Targets are filled country by country (each country's best target, then each country's second, …), so a provider is measured everywhere it has address space instead of only where its largest announcements are. `0` means "no separate country limit" |
 | `VAPN_SANITY_MAX_DELTA_PCT` | int | `50` | Hold the snapshot if the total prefix count swings past this percentage versus the published one |
 | `VAPN_SANITY_FORCE` | bool | `false` | Publish even when the sanity gate trips. Use per-run, never in `.env` |
 | `VAPN_RETAIN_SNAPSHOTS` | int | `5` | Superseded snapshots kept un-pruned (and therefore rollback-eligible) |
@@ -178,12 +179,16 @@ Run as a one-shot job. See [Install the builder](../builder/installation.md).
 | `VAPN_DB_WAIT` | duration | `60s` | Boot wait for the database |
 | `VAPN_TRUST_INTERVAL` | duration | `1m` | Trust recomputation cadence |
 | `VAPN_WINDOW_SECONDS` | int | `300` | Consensus window length, in seconds |
-| `VAPN_MIN_WORKERS` | int | `3` | Distinct workers required for a verdict (otherwise `insufficient_data`) |
+| `VAPN_MIN_WORKERS` | int | `3` | Distinct workers required for a verdict (otherwise `insufficient_data`). Applied per region as well as globally |
+| `VAPN_TARGET_HEALTH_WINDOW` | duration | `24h` | Trailing period per-network availability is measured over — the uptime figure shown next to each monitored network |
 | `VAPN_ADVISOR_URL` | string | — | Results push target. **Empty disables publication** — the outbox accumulates and the aggregator logs a warning |
 | `VAPN_ADVISOR_TOKEN` | string (secret) | — | VPS Advisor credential |
 
-Consensus tuning beyond these (healthy/degraded ratios, latency factor,
-retention windows) and the outbox drain cadence are code constants — see
+Regional aggregation needs no configuration: the aggregator groups measurements
+by the country the builder recorded for each probe target, and publishes a
+per-country verdict alongside the global one. Consensus tuning beyond the
+variables above (healthy/degraded ratios, latency factor, retention windows) and
+the outbox drain cadence are code constants — see
 [`internal/aggregate`](../../internal/aggregate/aggregate.go) and
 [trust calculation](../walkthroughs/trust-calculation.md).
 
@@ -300,6 +305,16 @@ look similar but are **not** read from `.env`; see
 | `MAXMIND_ACCOUNT_ID` | — | MaxMind account (note: **no** `VAPN_` prefix) |
 | `MAXMIND_LICENSE_KEY` | — | MaxMind licence key (secret; no `VAPN_` prefix) |
 | `VAPN_GRAFANA_PASSWORD` | `admin` | Grafana admin password (monitoring profile) |
+| `VAPN_CADDY_HTTP_PORT` | `80` | Public HTTP port of the edge. Change it only when this machine already serves something on port 80 |
+| `VAPN_CADDY_HTTPS_PORT` | `443` | Public HTTPS port of the edge |
+
+> **Moving the edge ports affects certificates.** Caddy proves domain ownership
+> over public port 80 (HTTP-01) or public port 443 (TLS-ALPN-01) and skips
+> whichever one you move, so moving only HTTP is safe while moving HTTPS as
+> well disables automatic issuance. The host and container port are always set
+> to the same value and handed to Caddy as its `http_port`/`https_port`, so its
+> redirects and challenge selection match what the outside world sees. Full
+> guidance: [running alongside another service](../operations/deployment.md#running-alongside-another-service).
 
 ### Backup script variables — **not** read from `.env`
 

@@ -23,7 +23,15 @@ services:
   caddy:
     image: caddy:2-alpine
     <<: *image-defaults
-    ports: ["80:80", "443:443"]
+    # Edge ports are configurable so the stack can be installed on a VM that
+    # already serves something on 80/443. Host and container port are kept
+    # identical, and the same values are given to Caddy as its http_port /
+    # https_port, so Caddy always knows the port the outside world reaches it
+    # on — which is what its redirects and certificate challenges depend on.
+    # Defaults are 80/443, i.e. unchanged. See docs/operations/deployment.md.
+    ports:
+      - "${VAPN_CADDY_HTTP_PORT:-80}:${VAPN_CADDY_HTTP_PORT:-80}"
+      - "${VAPN_CADDY_HTTPS_PORT:-443}:${VAPN_CADDY_HTTPS_PORT:-443}"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -31,6 +39,8 @@ services:
     environment:
       VAPN_DOMAIN: ${VAPN_DOMAIN}
       VAPN_ADMIN_ALLOW_CIDR: ${VAPN_ADMIN_ALLOW_CIDR:-127.0.0.1/32}
+      VAPN_CADDY_HTTP_PORT: ${VAPN_CADDY_HTTP_PORT:-80}
+      VAPN_CADDY_HTTPS_PORT: ${VAPN_CADDY_HTTPS_PORT:-443}
     depends_on: [coordinator]
 
   postgres:

@@ -371,15 +371,55 @@ backoff — transient `5xx` is harmless, persistent failure backs up the queue.
 status:
 
 ```json
-{ "provider_id": "7f9c...", "as_of": "2026-07-18T08:05:00Z", "global": { "verdict": "healthy", "confidence": 0.97, "metrics": { "loss_rate": 0.001, "rtt_p50_ms": 21.4, "rtt_p95_ms": 38.2, "worker_count": 14, "dissent_ratio": 0.02 } }, "regions": [{ "region": "eu-west", "verdict": "healthy", "confidence": 0.99 }] }
+{ "provider_id": "alexhost-com", "as_of": "2026-08-17T08:05:00Z",
+  "global":   { "verdict": "degraded", "confidence": 0.91, "metrics": { "loss_rate": 0.001, "rtt_p50_ms": 21.4, "rtt_p95_ms": 38.2, "worker_count": 14, "dissent_ratio": 0.02 } },
+  "regions":  [ { "region": "MD", "country": "Moldova", "continent": "Europe", "verdict": "healthy", "confidence": 0.93, "metrics": { "…": 0 }, "coverage": { "targets_total": 10, "targets_measured": 10, "targets_up": 10 }, "as_of": "2026-08-17T08:05:00Z" } ],
+  "network":  { "snapshot_version": "20260817T0800Z-…", "asns": [200019], "ipv4_addresses": 39680, "countries": [ { "country_code": "MD", "country": "Moldova", "continent": "Europe", "ipv4_addresses": 21504, "ipv4_share_pct": 54.19, "monitored_targets": 10 } ] },
+  "networks": [ { "prefix": "176.123.0.0/21", "origin_asn": 200019, "target": "176.123.0.1", "country_code": "MD", "city": "Chisinau", "verdict": "healthy", "availability": 0.9998, "rtt_p50_ms": 18.0, "last_measured_at": "2026-08-17T08:04:31Z" } ] }
 ```
 
+Full field-by-field schema: [API reference](../api/README.md#a4-results-ingestion-platform-pushes--idempotent).
+
 - **Verdicts:** `healthy | degraded | outage | insufficient_data`.
+- **Idempotent upsert** keyed by `provider_id`. Store the document verbatim —
+  `MonitoringProviderStatus.document` needs no schema change to hold the newer
+  shape, and **unknown fields must be accepted and stored**, since this document
+  grows over time.
 - **Display guidance (important):** these are _public-network reachability_
   signals, **not SLA claims**. Always render `insufficient_data` as "not enough
-  data," never as an outage. Show confidence. **Accept and store unknown
-  fields** (regional breakdowns and future metrics arrive here).
-- **Idempotent upsert** keyed by `provider_id`. Store the document verbatim.
+  data," never as an outage. Show confidence.
+
+**Rendering the geography.** The document deliberately separates two things
+your templates should not blend:
+
+| Section | Question it answers | Suggested UI |
+|---|---|---|
+| `network.countries` | *Where is this provider's network?* | "IPv4 distribution" — a bar or map keyed on `ipv4_share_pct`, sorted by `ipv4_addresses` |
+| `regions` | *How is it performing in each country?* | "Regional monitoring" — group by `continent`, one row per country with verdict, latency, loss |
+| `networks` | *Which specific networks are monitored, and how are they?* | "Monitored networks" table — prefix, country/city, uptime, latency, loss |
+
+- `network` is derived from BGP and GeoIP; it is present even before anyone has
+  probed the provider. `regions` and `networks` are measurements. A country can
+  hold 54% of the address space and have no `regions` entry at all — render
+  that as "not monitored here yet", never as an outage.
+- `ipv4_share_pct` is already address-weighted (a `/20` counts sixteen times a
+  `/24`); do not recompute shares from prefix counts.
+- **`country_code` is ISO 3166-1 alpha-2, plus `ZZ`** for address space MaxMind
+  does not place. Render `ZZ` as "Unknown", never as a country, and consider
+  hiding it when its share is negligible.
+- `networks[]` covers the prefixes that carry a probe target (capped
+  per provider), not every announced prefix — `network.countries` is the
+  complete footprint.
+
+```python
+# Rendering helpers over the stored document.
+doc = provider.monitoring_status.document
+distribution = doc.get("network", {}).get("countries", [])       # where the network is
+by_country   = {r["region"]: r for r in doc.get("regions", [])}  # how it behaves
+for country in distribution:
+    measured = by_country.get(country["country_code"])           # may be None
+    ...
+```
 
 **`POST /api/v1/monitoring/results/anomalies`** — anomaly documents
 (`kind: reachability_loss | latency_regression | routing_churn`, `severity`,

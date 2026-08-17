@@ -115,13 +115,80 @@ Auth: platform service credential (`Authorization: Bearer <token>`), scoped to
 
 **`PUT …/results/providers/{id}` body:**
 ```json
-{ "as_of": "2026-07-18T08:05:00Z",
-  "global": { "verdict": "healthy", "confidence": 0.97,
+{ "provider_id": "alexhost-com",
+  "as_of": "2026-08-17T08:05:00Z",
+
+  "global": { "verdict": "degraded", "confidence": 0.91,
     "metrics": { "rtt_p50_ms": 21.4, "rtt_p95_ms": 38.2, "loss_rate": 0.001,
                  "worker_count": 14, "dissent_ratio": 0.02 } },
-  "regions": [ { "region": "eu-west", "verdict": "healthy", "confidence": 0.99 },
-               { "region": "ap-south", "verdict": "insufficient_data", "confidence": 0 } ] }
+
+  "regions": [
+    { "region": "MD", "country_code": "MD", "country": "Moldova",
+      "continent_code": "EU", "continent": "Europe",
+      "verdict": "healthy", "confidence": 0.93,
+      "metrics": { "rtt_p50_ms": 18.0, "rtt_p95_ms": 31.5, "loss_rate": 0.0,
+                   "worker_count": 9, "dissent_ratio": 0.0 },
+      "coverage": { "targets_total": 10, "targets_measured": 10,
+                    "targets_up": 10, "worker_count": 9 },
+      "as_of": "2026-08-17T08:05:00Z" },
+    { "region": "BG", "country_code": "BG", "country": "Bulgaria",
+      "continent_code": "EU", "continent": "Europe",
+      "verdict": "insufficient_data", "confidence": 0,
+      "metrics": { "worker_count": 1, "dissent_ratio": 0.0 },
+      "coverage": { "targets_total": 4, "targets_measured": 1,
+                    "targets_up": 1, "worker_count": 1 },
+      "as_of": "2026-08-17T08:05:00Z" } ],
+
+  "network": {
+    "snapshot_version": "20260817T0800Z-1786982400000",
+    "as_of": "2026-08-17T08:00:00Z",
+    "asns": [200019],
+    "ipv4_addresses": 39680, "ipv6_net64s": 65536,
+    "prefix_count_v4": 99, "prefix_count_v6": 2,
+    "countries": [
+      { "country_code": "MD", "country": "Moldova",
+        "continent_code": "EU", "continent": "Europe",
+        "ipv4_addresses": 21504, "ipv4_share_pct": 54.19, "ipv6_net64s": 65536,
+        "prefix_count_v4": 44, "prefix_count_v6": 2, "monitored_targets": 10 } ] },
+
+  "networks": [
+    { "prefix": "176.123.0.0/21", "origin_asn": 200019, "target": "176.123.0.1",
+      "country_code": "MD", "country": "Moldova",
+      "continent_code": "EU", "continent": "Europe", "city": "Chisinau",
+      "verdict": "healthy", "availability": 0.9998, "loss_rate": 0.0,
+      "rtt_p50_ms": 18.0, "rtt_p95_ms": 31.5, "worker_count": 9,
+      "last_measured_at": "2026-08-17T08:04:31Z" } ] }
 ```
+
+The document answers four different questions and deliberately keeps them
+apart:
+
+| Key | What it is | Where it comes from |
+|---|---|---|
+| `global` | how the provider is behaving overall | measurements |
+| `regions[]` | how it is behaving **in each country** | measurements, grouped by the country of each probed address |
+| `network` | **where its address space is**, and how much is where | BGP + GeoIP — exists whether or not anyone probed it |
+| `networks[]` | the individual monitored networks behind those numbers | one row per probed prefix |
+
+- **`network` is not a measurement.** A country can hold 60% of a provider's
+  addresses and have no measurement coverage at all. Render network
+  distribution and monitoring health as separate facts; `coverage` on each
+  region is what tells you how much of a country was actually measured.
+- **`ipv4_share_pct` is address-weighted**, computed from deduplicated
+  announced address space (`country_ipv4 / total_ipv4 × 100`) — not from prefix
+  counts. A `/20` is sixteen `/24`s.
+- **`region` is an ISO 3166-1 alpha-2 country code**, plus the reserved code
+  **`ZZ` for address space the GeoIP database does not place**. Render `ZZ` as
+  "unknown", never as a country.
+- **`networks[]` covers the *monitored* prefixes** (those carrying a probe
+  target, capped by `VAPN_MAX_TARGETS_PER_PROVIDER`). The complete announced
+  footprint is `network.countries`.
+- **A country with no measurements has no `regions[]` entry at all** — it still
+  appears under `network.countries`. Absence means "not measured", not "down".
+- **Backwards compatible:** `provider_id`, `as_of` and `global` are unchanged
+  from earlier releases; `regions`, `network` and `networks` are additive. A
+  consumer reading only `global` keeps working.
+
 **Verdicts:** `healthy | degraded | outage | insufficient_data`.
 **Status:** `2xx` (fast ack; `202` fine). Non-2xx → platform retries with
 backoff. **Render `insufficient_data` as "not enough data," never an outage.**

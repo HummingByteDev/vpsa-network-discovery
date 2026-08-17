@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/netip"
 	"sort"
 	"time"
@@ -25,11 +26,29 @@ import (
 
 type Config struct {
 	BviewPath             string
-	CityMMDB              string  // empty: skip geo enrichment
-	MaxTargetsPerProvider int     // per address family
-	SanityMaxDelta        float64 // max fractional prefix-count change vs previous
-	SanityForce           bool    // publish even when the gate trips
-	RetainSnapshots       int     // superseded snapshots to keep un-pruned
+	CityMMDB              string // empty: skip geo enrichment
+	MaxTargetsPerProvider int    // per address family
+	// MaxTargetsPerCountry caps how many targets one country may take from a
+	// provider's budget before the next country is served. It is what makes a
+	// multi-country provider measurable everywhere rather than only where its
+	// largest announcements are.
+	MaxTargetsPerCountry int
+	SanityMaxDelta       float64 // max fractional prefix-count change vs previous
+	SanityForce          bool    // publish even when the gate trips
+	RetainSnapshots      int     // superseded snapshots to keep un-pruned
+	// GeoSource replaces the GeoIP database at CityMMDB when set. Callers that
+	// hold their own geographic source (and the pipeline tests, which place
+	// address space deterministically) supply it; the builder command leaves
+	// it nil and opens CityMMDB.
+	GeoSource GeoSource
+}
+
+// GeoSource is everything the pipeline asks of a GeoIP database: the single
+// country/city label carried per prefix, and the record-boundary split the
+// address-space accounting needs. *geo.Enricher implements it.
+type GeoSource interface {
+	Lookup(netip.Prefix) geo.Info
+	Ranges(netip.Prefix) []geo.Range
 }
 
 type Builder struct {
@@ -80,23 +99,43 @@ func (b *Builder) Run(ctx context.Context) error {
 		"skipped", stats.Skipped, "prefix_rows", len(rows),
 		"elapsed", time.Since(start).Round(time.Second).String())
 
-	if b.cfg.CityMMDB != "" {
-		if err := b.enrich(rows); err != nil {
+	// One GeoIP handle serves both jobs: the per-prefix country/city label and
+	// the record-boundary split the address-space accounting needs.
+	src := b.cfg.GeoSource
+	switch {
+	case src != nil:
+	case b.cfg.CityMMDB != "":
+		enricher, err := geo.Open(b.cfg.CityMMDB)
+		if err != nil {
 			return fmt.Errorf("geo enrichment: %w", err)
 		}
-	} else {
-		b.log.Warn("no GeoIP database configured; skipping enrichment")
+		defer enricher.Close()
+		src = enricher
+	default:
+		b.log.Warn("no GeoIP database configured; skipping enrichment — " +
+			"the published snapshot will carry no country distribution")
+	}
+	if src != nil {
+		b.enrich(rows, src)
 	}
 
 	snapshotID, version, err := b.load(ctx, rows, stats)
 	if err != nil {
 		return fmt.Errorf("load snapshot: %w", err)
 	}
+	countries, err := b.loadDistribution(ctx, snapshotID, rows, src)
+	if err != nil {
+		return fmt.Errorf("country distribution: %w", err)
+	}
 	targets, err := b.deriveTargets(ctx, snapshotID)
 	if err != nil {
 		return fmt.Errorf("derive targets: %w", err)
 	}
-	b.log.Info("snapshot loaded", "version", version, "prefixes", len(rows), "targets", targets)
+	if err := b.countTargetsByCountry(ctx, snapshotID); err != nil {
+		return fmt.Errorf("country target counts: %w", err)
+	}
+	b.log.Info("snapshot loaded", "version", version, "prefixes", len(rows),
+		"targets", targets, "country_rows", countries)
 
 	if err := b.sanityGate(ctx, snapshotID); err != nil {
 		return err
@@ -188,21 +227,91 @@ func (b *Builder) extract(monitored map[uint32]bool, asnToProvider map[uint32]st
 	return rows, stats, nil
 }
 
-func (b *Builder) enrich(rows []*prefixRow) error {
-	enricher, err := geo.Open(b.cfg.CityMMDB)
-	if err != nil {
-		return err
-	}
-	defer enricher.Close()
+func (b *Builder) enrich(rows []*prefixRow, src GeoSource) {
 	hits := 0
 	for _, r := range rows {
-		r.geo = enricher.Lookup(r.prefix)
+		r.geo = src.Lookup(r.prefix)
 		if r.geo.OK {
 			hits++
 		}
 	}
 	b.log.Info("geo enrichment complete", "prefixes", len(rows), "resolved", hits)
-	return nil
+}
+
+// loadDistribution computes each provider's country distribution from the
+// deduplicated prefix set and stores it against the snapshot. Returns the
+// number of (provider, country) rows written.
+func (b *Builder) loadDistribution(ctx context.Context, snapshotID int64, rows []*prefixRow, src GeoSource) (int, error) {
+	var r ranger
+	if src != nil {
+		r = src
+	}
+	byProvider := distribute(rows, r)
+
+	written := 0
+	tx, err := b.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	for provider, stats := range byProvider {
+		pct := shares(stats)
+		for code, s := range stats {
+			if _, err := tx.Exec(ctx, `
+				insert into routing.provider_geo
+				  (snapshot_id, provider_id, country_code, country_name,
+				   continent_code, continent_name, ipv4_addresses, ipv6_net64s,
+				   ipv4_share, prefix_count_v4, prefix_count_v6)
+				values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+				on conflict (snapshot_id, provider_id, country_code) do update set
+				  ipv4_addresses = excluded.ipv4_addresses,
+				  ipv6_net64s = excluded.ipv6_net64s,
+				  ipv4_share = excluded.ipv4_share,
+				  prefix_count_v4 = excluded.prefix_count_v4,
+				  prefix_count_v6 = excluded.prefix_count_v6`,
+				snapshotID, provider, code, nullable(s.Name),
+				nullable(s.ContinentCode), nullable(s.ContinentName),
+				clampInt64(s.IPv4Addresses), clampInt64(s.IPv6Net64s),
+				pct[code], s.PrefixCountV4, s.PrefixCountV6); err != nil {
+				return 0, err
+			}
+			written++
+		}
+	}
+	return written, tx.Commit(ctx)
+}
+
+// countTargetsByCountry records how many probe targets each country ended up
+// with, so a consumer can tell "no measurements here" (targets exist, nobody
+// probed them) from "nothing to measure here" (no targets at all).
+func (b *Builder) countTargetsByCountry(ctx context.Context, snapshotID int64) error {
+	_, err := b.pool.Exec(ctx, `
+		update routing.provider_geo g set target_count = (
+		  select count(*) from routing.probe_target t
+		  where t.snapshot_id = g.snapshot_id
+		    and t.provider_id = g.provider_id
+		    and coalesce(nullif(t.geo_country, ''), 'ZZ') = g.country_code
+		)
+		where g.snapshot_id = $1`, snapshotID)
+	return err
+}
+
+// nullable keeps empty strings out of the database as NULL, so "no name known"
+// is distinguishable from "named the empty string".
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// clampInt64 saturates an unsigned count into the signed range PostgreSQL
+// stores. Only pathological IPv6 announcements can reach it.
+func clampInt64(v uint64) int64 {
+	if v > uint64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 // load creates the snapshot row and bulk-inserts prefixes.
@@ -264,7 +373,18 @@ func (b *Builder) load(ctx context.Context, rows []*prefixRow, stats *mrtreader.
 // deriveTargets picks one representative probeable address per prefix (first
 // usable host), capped per provider and family, preferring the largest and
 // most widely seen prefixes.
+//
+// Targets are spread across the provider's countries rather than taken in size
+// order: the budget is filled country by country (every country's best target
+// first, then every country's second-best, and so on), capped per country by
+// MaxTargetsPerCountry. A provider whose largest announcements are all in one
+// country is therefore still measured everywhere it has address space, which
+// is what country-level verdicts require.
 func (b *Builder) deriveTargets(ctx context.Context, snapshotID int64) (int64, error) {
+	perCountry := b.cfg.MaxTargetsPerCountry
+	if perCountry <= 0 {
+		perCountry = b.cfg.MaxTargetsPerProvider
+	}
 	tag, err := b.pool.Exec(ctx, `
 		with candidates as (
 		  select p.snapshot_id, a.provider_id, p.id as prefix_id,
@@ -272,7 +392,9 @@ func (b *Builder) deriveTargets(ctx context.Context, snapshotID int64) (int64, e
 		         'first usable address of ' || p.prefix::text as rationale,
 		         masklen(p.prefix) as masklen,
 		         coalesce((p.flags->>'peer_count')::int, 0) as peer_count,
-		         p.prefix
+		         p.prefix,
+		         coalesce(nullif(p.geo_country, ''), 'ZZ') as country,
+		         p.geo_city as city
 		  from routing.prefix p
 		  join routing.asn a on a.asn = p.origin_asn
 		  where p.snapshot_id = $1
@@ -284,16 +406,25 @@ func (b *Builder) deriveTargets(ctx context.Context, snapshotID int64) (int64, e
 		  select distinct on (address) *
 		  from candidates
 		  order by address, masklen asc, peer_count desc, prefix_id asc
+		), per_country as (
+		  select *, row_number() over (
+		    partition by provider_id, family(prefix), country
+		    order by masklen asc, peer_count desc, prefix asc
+		  ) as country_rank
+		  from deduped
 		), ranked as (
 		  select *, row_number() over (
 		    partition by provider_id, family(prefix)
-		    order by masklen asc, peer_count desc, prefix asc
+		    order by country_rank asc, masklen asc, peer_count desc, prefix asc
 		  ) as rank
-		  from deduped
+		  from per_country
+		  where country_rank <= $3
 		)
-		insert into routing.probe_target (snapshot_id, provider_id, prefix_id, address, rationale)
-		select snapshot_id, provider_id, prefix_id, address, rationale
-		from ranked where rank <= $2`, snapshotID, b.cfg.MaxTargetsPerProvider)
+		insert into routing.probe_target
+		  (snapshot_id, provider_id, prefix_id, address, rationale, geo_country, geo_city)
+		select snapshot_id, provider_id, prefix_id, address, rationale, country, city
+		from ranked where rank <= $2`,
+		snapshotID, b.cfg.MaxTargetsPerProvider, perCountry)
 	if err != nil {
 		return 0, err
 	}

@@ -1,769 +1,1265 @@
+````markdown
 # CLAUDE.md
 
 # VPS Advisor Community Network Intelligence Platform
 
-## Documentation Consolidation and Simplified Builder Installation
+## Network Monitoring, Geographic Aggregation, Builder Configuration, and CLI Improvements
 
-You are working on the documentation for the **VPS Advisor Community Network Intelligence Platform**.
+You are working on the **VPS Advisor Community Network Intelligence Platform**.
 
-The implementation is already complete.
+The core platform is already implemented. Artifact publishing is currently working, but the monitoring data being produced is incomplete for the intended VPS Advisor use case.
 
-Your task is to improve and consolidate the existing documentation so that it is:
+This task is primarily an **investigation, correction, and extension of the existing implementation**.
 
-- accurate
-- easy to navigate
-- non-redundant
-- internally consistent
-- beginner-friendly where appropriate
-- technically comprehensive where required
-- easy to maintain
+Do not redesign the platform from scratch.
 
-This is primarily a **documentation restructuring and improvement task**.
+Do not replace the existing architecture simply because another implementation may appear simpler.
 
-Do not redesign or reimplement the application.
-
-Do not change application behaviour merely to accommodate documentation.
+First understand the existing implementation, data model, pipeline, API contracts, worker behaviour, builder behaviour, and VPS Advisor integration. Then make the architectural changes necessary to correctly support the requirements below.
 
 ---
 
-# 1. Understand the Existing Project First
+# 1. Project Context
 
-Before changing any documentation, inspect the repository and understand:
+VPS Advisor is an independent VPS/server provider review platform.
 
-- project architecture
+Providers can list their services on VPS Advisor, and VPS Advisor collects information about those providers.
+
+The Community Network Intelligence Platform is an independent monitoring system that provides network-level intelligence and uptime measurements for providers listed on VPS Advisor.
+
+The monitoring platform consists broadly of:
+
+- VPS Advisor
+- coordinator/API
+- community workers
+- routing/BGP data
+- RIPE RIS data
 - builder
-- community worker
-- coordinator
+- signed routing snapshots
+- IP/network probing
+- geographic enrichment
 - aggregation
-- routing snapshots
+- artifact publishing
 - PostgreSQL
-- object storage
-- RIPE RIS integration
-- MaxMind integration
-- worker authentication
-- snapshot signing
-- VPS Advisor integration
-- deployment architecture
-- CLI commands
-- Docker configuration
-- systemd configuration
-- environment variables
-- existing documentation
+- object/artifact storage
 
-Also inspect the existing `docs/` directory completely.
+The platform is designed so that community members can contribute worker infrastructure.
 
-Do not immediately create new documentation.
+Workers:
 
-First determine:
+1. authenticate with the coordinator;
+2. receive the appropriate routing/network snapshot;
+3. identify monitoring targets;
+4. probe targets;
+5. report measurements;
+6. participate in aggregated provider/network health calculations.
 
-1. What documentation already exists?
-2. Which documents overlap?
-3. Which documents contain the authoritative version of information?
-4. Which documents should be merged?
-5. Which documents should remain separate?
-6. Which documents are missing?
-7. Which information is duplicated across multiple files?
-8. Which links will need updating after consolidation?
+The VPS Advisor website consumes the resulting aggregated monitoring information.
+
+The VPS Advisor website itself is already implemented.
+
+**Do not rebuild the VPS Advisor website.**
+
+Only modify the VPS Advisor integration where required to support the corrected monitoring data model/API.
 
 ---
 
-# 2. Documentation Consolidation Is a Priority
+# 2. Primary Problem
 
-The current documentation contains several related documents.
+Artifact publishing now works, but the published monitoring data does not contain the geographic information required by VPS Advisor.
 
-Do NOT solve documentation gaps by continuously creating additional files.
+For example:
 
-Before creating a new document, determine whether the information belongs in an existing document.
+**AS200019 is the ASN for AlexHost SRL.**
 
-The goal is:
+The expected geographic distribution of its IPv4 space is approximately:
 
-> Fewer, clearer, better-organized documents rather than many small documents containing overlapping information.
+```text
+Moldova: 66.5%
+Netherlands: 8.1%
+United Kingdom: 5.2%
+Sweden: 5.2%
+Bulgaria: 4.0%
+Switzerland: 4.0%
+France: 3.5%
+Romania: 2.3%
+United States: 1.2%
+```
+````
 
-Merge documents when they cover substantially the same subject.
+These percentages represent the distribution of IPv4 space by country.
 
-For example, if multiple documents explain:
+The monitoring platform must therefore preserve enough information to derive this distribution.
 
-- builder installation
-- builder configuration
-- builder operation
-- builder deployment
+The current result is:
 
-consider whether they can be consolidated into a coherent builder guide instead of requiring the reader to navigate several documents.
+```python
+{
+    'as_of': '2026-08-17T11:20:00Z',
+    'global': {
+        'metrics': {
+            'loss_rate': 0.09385113268608414,
+            'rtt_p50_ms': 173.8715,
+            'rtt_p95_ms': 232.95020000000002,
+            'worker_count': 2,
+            'dissent_ratio': 0
+        },
+        'verdict': 'insufficient_data',
+        'confidence': 0
+    },
+    'provider_id': 'alexhost-com'
+}
+```
 
-Likewise, identify similar redundancy across:
+This is insufficient.
 
-- architecture
-- operations
-- worker documentation
-- deployment
-- security
-- API documentation
-- integration documentation
-
-Do not merge documents merely because they are related.
-
-Keep documents separate when they serve clearly different audiences or purposes.
+The current response is overly global and does not provide the geographic breakdown required by the product.
 
 ---
 
-# 3. Establish a Single Source of Truth
+# 3. Core Requirement: BGP Prefixes Must Be Geographically Enriched
 
-For every important concept, establish one authoritative location.
+The essence of the RIPE/BGP + MaxMind pipeline is:
 
-Examples:
+```text
+Provider ASN
+    ↓
+BGP announced prefixes
+    ↓
+Deduplicate prefixes
+    ↓
+Determine IP address space represented by prefixes
+    ↓
+GeoIP lookup
+    ↓
+Country attribution
+    ↓
+Aggregate IPv4 address count by country
+    ↓
+Determine percentage distribution
+    ↓
+Determine monitoring targets
+    ↓
+Probe targets from community workers
+    ↓
+Aggregate probe measurements by country
+    ↓
+Produce global + regional/country monitoring data
+```
 
-### Configuration
+The platform must not treat the ASN itself as the monitoring target.
 
-The configuration reference should be authoritative for:
+The ASN is used to discover the provider's announced network space.
 
-- environment variables
-- defaults
-- valid values
-- configuration semantics
+---
 
-Other documents should explain configuration at a high level and link to the reference instead of duplicating the entire configuration table.
+# 4. Example Geographic Dataset
 
-### Architecture
+The following is representative of the information the system needs to be able to derive.
 
-Architecture documentation should be authoritative for:
+```text
+| Netblock | Country | Number of IPs |
+|----------|---------|---------------|
+| 131.123.37.0/24 | Bulgaria | 256 |
+| 131.123.38.0/24 | Bulgaria | 256 |
+| 131.123.39.0/24 | Bulgaria | 256 |
+| 131.123.40.0/24 | Bulgaria | 256 |
+| 131.123.41.0/24 | Bulgaria | 256 |
+| 131.123.42.0/24 | Bulgaria | 256 |
+| 131.123.43.0/24 | Bulgaria | 256 |
+| 37.221.65.0/24 | Bulgaria | 256 |
+| 131.123.36.0/24 | France | 256 |
+| 143.246.208.0/24 | France | 256 |
+| 143.246.209.0/24 | France | 256 |
+| 143.246.210.0/24 | France | 256 |
+| 143.246.211.0/24 | France | 256 |
+| 143.246.212.0/24 | France | 256 |
+| 131.123.32.0/24 | Moldova | 256 |
+| 131.123.34.0/24 | Moldova | 256 |
+| 131.123.44.0/22 | Moldova | 1,024 |
+| 131.123.48.0/20 | Moldova | 4,096 |
+| 143.246.221.0/24 | Moldova | 256 |
+| 176.123.0.0/21 | Moldova | 2,048 |
+| 176.123.8.0/22 | Moldova | 1,024 |
+| 176.125.242.0/23 | Moldova | 512 |
+| 37.221.67.0/24 | Moldova | 256 |
+| 45.145.0.0/24 | Moldova | 256 |
+| 5.63.19.0/24 | Moldova | 256 |
+| 80.96.108.0/24 | Moldova | 256 |
+| 80.96.112.0/24 | Moldova | 256 |
+| 80.96.113.0/24 | Moldova | 256 |
+| 80.96.58.0/24 | Moldova | 256 |
+| 80.96.59.0/24 | Moldova | 256 |
+| 80.96.68.0/24 | Moldova | 256 |
+| 80.97.124.0/24 | Moldova | 256 |
+| 80.97.128.0/20 | Moldova | 4,096 |
+| 81.180.92.0/24 | Moldova | 256 |
+| 81.180.93.0/24 | Moldova | 256 |
+| 85.120.216.0/24 | Moldova | 256 |
+| 85.120.217.0/24 | Moldova | 256 |
+| 85.120.252.0/24 | Moldova | 256 |
+| 85.120.253.0/24 | Moldova | 256 |
+| 85.120.254.0/24 | Moldova | 256 |
+| 85.120.81.0/24 | Moldova | 256 |
+| 85.121.149.0/24 | Moldova | 256 |
+| 85.121.176.0/24 | Moldova | 256 |
+| 85.121.177.0/24 | Moldova | 256 |
+| 85.121.178.0/24 | Moldova | 256 |
+| 85.121.183.0/24 | Moldova | 256 |
+| 85.121.4.0/24 | Moldova | 256 |
+| 85.121.5.0/24 | Moldova | 256 |
+| 85.122.114.0/24 | Moldova | 256 |
+| 85.137.249.0/24 | Moldova | 256 |
+| 91.208.162.0/24 | Moldova | 256 |
+| 91.208.184.0/24 | Moldova | 256 |
+| 91.208.197.0/24 | Moldova | 256 |
+| 91.208.206.0/24 | Moldova | 256 |
+| 132.243.166.0/24 | Netherlands | 256 |
+| 132.243.172.0/24 | Netherlands | 256 |
+| 176.116.0.0/24 | Netherlands | 256 |
+| 45.148.244.0/24 | Netherlands | 256 |
+| 45.150.110.0/24 | Netherlands | 256 |
+| 45.93.8.0/24 | Netherlands | 256 |
+| 5.181.0.0/24 | Netherlands | 256 |
+| 5.252.20.0/24 | Netherlands | 256 |
+| 85.137.248.0/24 | Netherlands | 256 |
+| 93.185.167.0/24 | Netherlands | 256 |
+| 146.19.213.0/24 | Russia | 256 |
+| 159.253.120.0/24 | Russia | 256 |
+| 45.86.86.0/24 | Russia | 256 |
+| 45.93.9.0/24 | Russia | 256 |
+| 91.199.133.0/24 | Russia | 256 |
+| 91.229.239.0/24 | Russia | 256 |
+| 94.103.188.0/24 | Russia | 256 |
+| 143.246.192.0/24 | Sweden | 256 |
+| 143.246.193.0/24 | Sweden | 256 |
+| 143.246.194.0/24 | Sweden | 256 |
+| 143.246.195.0/24 | Sweden | 256 |
+| 143.246.196.0/24 | Sweden | 256 |
+| 143.246.197.0/24 | Sweden | 256 |
+| 143.246.198.0/24 | Sweden | 256 |
+| 143.246.199.0/24 | Sweden | 256 |
+| 132.243.161.0/24 | Switzerland | 256 |
+| 132.243.162.0/24 | Switzerland | 256 |
+| 132.243.174.0/24 | Switzerland | 256 |
+| 132.243.175.0/24 | Switzerland | 256 |
+| 2.59.219.0/24 | Switzerland | 256 |
+| 132.243.173.0/24 | Turkey | 256 |
+| 131.123.35.0/24 | United Kingdom | 256 |
+| 143.246.216.0/24 | United Kingdom | 256 |
+| 143.246.217.0/24 | United Kingdom | 256 |
+| 143.246.218.0/24 | United Kingdom | 256 |
+| 143.246.219.0/24 | United Kingdom | 256 |
+| 171.22.181.0/24 | United Kingdom | 256 |
+| 213.111.160.0/22 | United Kingdom | 1,024 |
+| 213.111.164.0/22 | United Kingdom | 1,024 |
+| 213.111.168.0/22 | United Kingdom | 1,024 |
+| 213.111.172.0/22 | United Kingdom | 1,024 |
+| 87.120.244.0/24 | United Kingdom | 256 |
+| 151.244.219.0/24 | United States | 256 |
+| 46.16.34.0/24 | United States | 256 |
+| 91.237.119.0/24 | United States | 256 |
+```
 
-- system components
-- data flows
-- architectural decisions
-- service relationships
+This is an important conceptual distinction:
 
-Operational documents should focus on operating the system rather than duplicating architectural explanations.
+**The system is not simply GeoIP-looking up a provider's ASN.**
+
+It is:
+
+> Finding IP prefixes announced by the ASN through BGP, then geographically enriching the resulting IP space.
+
+---
+
+# 5. Geographic Aggregation Requirements
+
+The builder must produce geographic metadata for every monitored provider.
+
+At minimum, the resulting provider data must be capable of representing:
+
+- country
+- country code
+- IPv4 address count
+- IPv4 percentage
+- announced prefixes contributing to the country
+- monitoring targets associated with the country
+- measurement results associated with the country
+- measurement timestamp
+
+The implementation may use a different internal model if appropriate, but the resulting information must support the above requirements.
+
+---
+
+# 6. IPv4 Percentage Calculation
+
+For each provider:
+
+```text
+total IPv4 addresses announced by provider
+```
+
+must be calculated after prefix deduplication.
+
+Then:
+
+```text
+country_ipv4_count / total_ipv4_count * 100
+```
+
+produces the country share.
+
+For example:
+
+```text
+Moldova IPv4 count = 66,500
+Total IPv4 count    = 100,000
+
+Moldova share = 66.5%
+```
+
+Do not calculate percentages based on:
+
+- number of prefixes alone
+- number of /24s alone
+- number of BGP observations
+- number of peers
+- number of workers
+
+A `/20` represents substantially more IPv4 addresses than a `/24`.
+
+The calculation must account for actual address-space size.
+
+---
+
+# 7. Prefix Deduplication
+
+The existing project already addresses duplicate BGP prefixes.
+
+Preserve and verify this behaviour.
+
+The same prefix may appear multiple times because it is observed through:
+
+- multiple peers
+- multiple AS paths
+- multiple collectors
+- multiple BGP observations
+
+A prefix must not be counted repeatedly simply because it appears multiple times in the source data.
+
+The geographic aggregation pipeline must operate on the correct deduplicated network set.
+
+Investigate the existing implementation and ensure:
+
+```text
+BGP observations
+      ↓
+deduplicated provider prefixes
+      ↓
+GeoIP enrichment
+      ↓
+address-space calculation
+```
+
+rather than:
+
+```text
+BGP observations
+      ↓
+GeoIP enrichment
+      ↓
+count everything
+```
+
+---
+
+# 8. MaxMind GeoIP Integration
+
+The MaxMind GeoIP database is specifically required to geographically enrich the IP space.
+
+Use the existing MaxMind integration where possible.
+
+Do not introduce an unrelated geolocation provider unless there is a demonstrated implementation requirement.
+
+The system must support the existing MaxMind configuration model and documentation.
+
+For each relevant network/prefix, determine the appropriate geographic attribution.
+
+Be careful with the distinction between:
+
+- prefix network address
+- individual IP addresses
+- MaxMind record boundaries
+- countries
+- reserved/unallocated space
+- unknown locations
+
+Do not silently classify unknown data as a real country.
+
+Where the implementation needs a policy for prefixes spanning multiple geographic records, inspect the existing design and establish a deterministic, documented rule.
+
+Do not invent a simplistic rule without checking how the existing system is designed.
+
+---
+
+# 9. Monitoring Targets Must Be Derived From Network Space
+
+This is a critical requirement.
+
+The monitoring system should not use a single hard-coded IP address as the source of truth for a provider.
+
+The probe target set must be derived from the provider's announced network space.
+
+The conceptual flow is:
+
+```text
+Provider
+   ↓
+ASN
+   ↓
+BGP prefixes
+   ↓
+Deduplicated prefixes
+   ↓
+GeoIP enrichment
+   ↓
+Country/network groups
+   ↓
+Probe targets
+   ↓
+Community workers
+```
+
+The target derivation must allow a provider with infrastructure in multiple countries to be monitored across those locations.
+
+---
+
+# 10. Country-Level Monitoring Aggregation
+
+Probe results must not only be aggregated globally.
+
+They must also be aggregated by country/region.
+
+For example:
+
+```text
+Provider: AlexHost
+
+Global
+  uptime
+  packet loss
+  RTT
+  worker count
+  confidence
+
+Moldova
+  uptime
+  packet loss
+  RTT
+  worker count
+  confidence
+
+Netherlands
+  uptime
+  packet loss
+  RTT
+  worker count
+  confidence
+
+United Kingdom
+  uptime
+  packet loss
+  RTT
+  worker count
+  confidence
+
+...
+```
+
+The exact API structure should follow the existing architecture and conventions, but it must expose enough information for the frontend to produce regional monitoring visualizations.
+
+---
+
+# 11. Reference Mockups
+
+The following files show how the monitoring data will be consumed:
+
+```text
+dev-files/mock/monitored-network.png
+dev-files/mock/regional-monitoring.png
+```
+
+Inspect these files carefully before implementing the data model/API changes.
+
+They are important product references.
+
+Use them to understand the intended consumer-facing information, particularly:
+
+- global monitoring
+- regional/country monitoring
+- geographic distribution
+- country-level status
+- network coverage
+- presentation of monitoring results
+
+Do not attempt to redesign the mockups.
+
+Use them to determine what information the backend needs to expose.
+
+If the mockups contain information that the current backend cannot produce, identify the missing data explicitly and implement the required backend support where appropriate.
+
+---
+
+# 12. Current API Response Must Evolve
+
+The current response:
+
+```python
+{
+    'as_of': '2026-08-17T11:20:00Z',
+    'global': {
+        'metrics': {
+            'loss_rate': 0.09385113268608414,
+            'rtt_p50_ms': 173.8715,
+            'rtt_p95_ms': 232.95020000000002,
+            'worker_count': 2,
+            'dissent_ratio': 0
+        },
+        'verdict': 'insufficient_data',
+        'confidence': 0
+    },
+    'provider_id': 'alexhost-com'
+}
+```
+
+is insufficient for the intended use case.
+
+Do not simply append arbitrary fields.
+
+Review the existing API contract and determine a coherent structure for:
+
+- global data
+- geographic/network distribution
+- country-level monitoring
+- timestamps
+- coverage
+- target counts
+- measurements
+- confidence
+- verdict
+- worker participation
+
+Maintain backwards compatibility where practical.
+
+If a breaking API change is genuinely necessary, document it and update all consumers.
+
+---
+
+# 13. Distinguish Network Distribution From Monitoring Results
+
+These are related but different concepts.
+
+The system must distinguish:
+
+### Network distribution
+
+Where the provider's announced IPv4 address space is located.
+
+Example:
+
+```text
+Moldova: 66.5%
+Netherlands: 8.1%
+United Kingdom: 5.2%
+...
+```
+
+### Monitoring results
+
+How the provider's network behaves when probed by community workers.
+
+Example:
+
+```text
+Moldova
+  packet loss: 1.2%
+  p50 RTT: 40ms
+  p95 RTT: 85ms
+
+Netherlands
+  packet loss: 0.4%
+  p50 RTT: 25ms
+  p95 RTT: 60ms
+```
+
+Do not conflate these.
+
+A country can have a large percentage of IP space but poor measurement coverage.
+
+The API should allow the consumer to understand both.
+
+---
+
+# 14. Coverage and Confidence
+
+The system must preserve the distinction between:
+
+- available network space
+- derived monitoring targets
+- successfully probed targets
+- worker participation
+- measurement confidence
+
+Do not report high confidence simply because BGP data exists.
+
+Likewise, do not treat lack of probe data as proof that the provider is down.
+
+The existing verdict/confidence model must be reviewed and adapted to country-level monitoring.
+
+---
+
+# 15. Caddy Port Configuration
+
+The builder currently has a deployment problem when installed on a VPS already running another service on port 80.
+
+The current error is:
+
+```text
+Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint vapn-caddy-1 (...): failed to bind host port 0.0.0.0:80/tcp: address already in use
+```
+
+The builder deployment must therefore support configurable host ports for Caddy.
+
+The Caddy host port must be configurable through the builder `.env` configuration.
+
+Do not hard-code:
+
+```text
+80:80
+```
+
+in a way that cannot be changed by the operator.
+
+The configuration should allow a user to select an alternative host port while retaining the appropriate container-side port.
+
+For example, the operator should be able to configure something conceptually like:
+
+```text
+CADDY_HTTP_PORT=8080
+```
+
+Use the actual project's configuration naming conventions rather than blindly adopting this variable name.
+
+---
+
+# 16. Caddy Port Requirements
+
+The implementation must:
+
+1. expose the Caddy host port through configuration;
+2. provide a sensible default;
+3. preserve existing behaviour for users who do not customize it;
+4. allow installation alongside services already occupying port 80;
+5. ensure Docker Compose correctly interpolates the configured port;
+6. ensure documentation explains the setting;
+7. ensure the installer/configuration flow exposes it appropriately;
+8. ensure health checks and dependent services remain functional.
+
+Check whether HTTPS/443 and other ports have similar conflicts.
+
+Do not unnecessarily change them unless the implementation requires it.
+
+---
+
+# 17. `vapn` Reconfiguration / Reinstallation
+
+Add a user-friendly CLI workflow for reconfiguring or reinstalling the VAPN installation.
+
+The desired user experience is conceptually:
+
+```text
+vapn reconfigure
+```
+
+or:
+
+```text
+vapn reinstall
+```
+
+Determine the most appropriate command based on the existing CLI conventions.
+
+Do not blindly implement both commands if one clear command is preferable.
+
+The workflow should allow a user to effectively return to the installation/configuration process without manually editing every configuration file.
+
+---
+
+# 18. Reconfiguration Behaviour
+
+The reconfiguration flow should:
+
+1. detect the existing installation;
+2. load the current configuration;
+3. show existing/default values where appropriate;
+4. identify sensitive values safely;
+5. prompt the user for required configuration;
+6. allow them to retain existing values;
+7. allow them to replace values;
+8. validate the configuration;
+9. safely update the configuration;
+10. restart/redeploy affected services when appropriate;
+11. verify that the installation is healthy.
+
+The user should not have to remember every configuration value.
+
+---
+
+# 19. Secrets During Reconfiguration
+
+Do not print secrets in plain text unnecessarily without mask them.
+
+When displaying existing values:
+
+```text
+Coordinator URL: https://probes.vpsadvisor.com
+Snapshot public key: TbP5t********la/rw=
+Enrollment token: cwt********Z8YZwsa4
+```
+
+or use the project's established secure prompting behaviour.
+
+If a secret is retained, the user should be able to select the existing value without having to re-enter it.
+
+If a new secret is supplied, validate and store it according to the existing security model.
+
+Do not log secrets.
+
+---
+
+# 20. Reinstall vs Reconfigure
+
+Determine whether the current architecture needs two distinct operations.
+
+A reconfiguration operation should normally preserve:
+
+- installation state
+- persistent data
+- worker identity where appropriate
+- snapshots
+- credentials that the user elects to retain
+
+A reinstall operation may need to:
+
+- recreate containers
+- recreate generated configuration
+- pull/update images
+- rebuild local state
+
+Do not delete persistent data or credentials without an explicit warning and confirmation.
+
+If the existing project architecture does not support a meaningful distinction, implement the safest and clearest workflow rather than creating two commands with identical behaviour.
+
+---
+
+# 21. Interactive Configuration
+
+The installation/reconfiguration experience should show defaults.
+
+For example:
+
+```text
+VPS Advisor URL [https://probes.vpsadvisor.com]:
+Worker name [west-t.local]:
+...
+```
+
+The exact configuration values and prompts must be based on the actual project configuration.
+
+An empty response should retain the displayed default/current value where appropriate.
+
+Sensitive values should use secure input.
+
+---
+
+# 22. Idempotency
+
+The following must be safe:
+
+```text
+vapn reconfigure
+```
+
+run multiple times.
+
+It must not:
+
+- duplicate configuration entries
+- corrupt `.env`
+- overwrite unrelated settings
+- create duplicate PATH entries
+- generate unnecessary new credentials
+- destroy persistent state
+
+---
+
+# 23. Documentation Updates
+
+Update all relevant documentation to reflect:
+
+### Geographic monitoring
+
+Explain:
+
+- how BGP prefixes are obtained
+- how MaxMind is used
+- how IP space is attributed to countries
+- how IPv4 percentages are calculated
+- how monitoring targets are derived
+- how country-level measurements are aggregated
+
+### Caddy
+
+Document:
+
+- default Caddy port
+- how to change it
+- how to resolve port conflicts
+- how to configure it during installation/reconfiguration
+
+### CLI
+
+Document:
+
+- installation
+- reconfiguration
+- reinstallation if implemented
+- what happens to existing configuration
+- what happens to persistent data
+- how secrets are handled
+- verification
 
 ### API
 
-The API documentation should be authoritative for:
+Update API documentation with the corrected geographic/monitoring response.
 
-- endpoints
-- authentication
-- request formats
-- response formats
-- error responses
+### Worker
 
-Integration guides should explain how to use the API in context rather than duplicating the complete API specification.
+Update worker documentation if the target or snapshot contract changes.
 
-### Installation
+Do not duplicate large configuration references unnecessarily.
 
-Installation guides should focus on getting the software running successfully.
-
-Do not turn every installation guide into an architecture manual.
+Follow the existing documentation consolidation principles.
 
 ---
 
-# 4. Documentation Audience
+# 24. Changelog
 
-The documentation has multiple audiences.
+Create a comprehensive changelog entry for this release/change.
 
-Do not write every document at the same technical level.
+The changelog must clearly document:
 
-Clearly distinguish between:
+## Added
 
-### Beginners / Community Contributors
+- geographic network aggregation
+- country-level monitoring
+- IPv4 country distribution
+- new API information
+- Caddy port configuration
+- CLI reconfiguration/reinstallation capability
 
-Need:
+## Changed
 
-- simple instructions
-- copy-and-paste commands
-- explanations of unfamiliar terms
-- minimal configuration
-- troubleshooting
+- monitoring target derivation
+- artifact/snapshot contents where applicable
+- monitoring aggregation
+- API response
+- builder configuration
 
-### Platform Operators
+## Fixed
 
-Need:
+- missing geographic information
+- insufficient provider monitoring response
+- Caddy port collision issue
+- any related issues discovered during implementation
 
-- deployment
-- configuration
-- monitoring
-- backups
-- recovery
-- upgrades
-- security
-- operational procedures
+## Compatibility
 
-### Developers
+Document:
 
-Need:
-
-- architecture
-- APIs
-- database
-- internal services
-- development workflow
-- testing
-
-### VPS Advisor Developers
-
-Need:
-
-- Django integration
-- API contracts
-- worker integration
-- provider/ASN synchronization
-- monitoring data integration
-
-Do not expose unnecessary implementation details to beginner users.
-
----
-
-# 5. Simplified Builder Installation Is a Major Requirement
-
-The existing builder documentation is technically accurate but is too advanced for the primary installation experience.
-
-Create a **single, clean, beginner-oriented builder installation path**.
-
-The target user is:
-
-> A person with a freshly installed VPS who can connect through SSH and follow commands, but does not necessarily understand Linux administration, BGP, ASN, RIPE RIS, PostgreSQL, Docker, or cryptography.
-
-The user should be able to follow the guide sequentially.
-
-The guide should feel like:
-
-1. Connect to your VPS.
-2. Install the required prerequisites.
-3. Clone the repository.
-4. Generate the snapshot signing key.
-5. Configure the builder.
-6. Start the builder.
-7. Run the first build.
-8. Verify the snapshot.
-9. Enable automatic execution.
-10. Check that everything is working.
-
-Do not require the user to understand the architecture before completing these steps.
-
----
-
-# 6. Builder Installation Must Reflect the Actual Implementation
-
-Inspect the implementation before writing the guide.
-
-Verify:
-
-- repository URL
-- required packages
-- Docker requirements
-- Docker Compose requirements
-- builder commands
-- key generation command
-- environment variables
-- configuration files
-- systemd services
-- systemd timers
-- PostgreSQL requirements
-- MaxMind requirements
-- RIPE RIS requirements
-- object storage requirements
-- snapshot publishing
-- verification commands
-- update procedure
-- rollback procedure
-
-Do not invent commands.
-
-Do not document hypothetical workflows.
-
-If the current implementation has a limitation, document the limitation rather than hiding it.
-
----
-
-# 7. Snapshot Signing Key
-
-The simplified installation guide must explicitly include a step for generating the snapshot signing key.
-
-Explain this in plain language.
-
-The reader should understand:
-
-- why the key exists
-- what the private key does
-- what the public key does
-- where each is used
-- why the private key must remain secret
-- what happens if the private key is lost
-- what happens if the private key is compromised
-
-Use a clear security warning.
-
-The installation guide should make this a deliberate installation step rather than hiding it inside advanced configuration.
-
----
-
-# 8. Builder Configuration
-
-The simplified builder guide must include a clear configuration section.
-
-Do not merely provide a large environment-variable dump.
-
-Organize configuration into understandable groups.
-
-For every important setting explain:
-
-- what it does
-- whether it is required
-- where the value comes from
-- whether it is secret
-- what the operator should enter
-
-For example:
-
-| Setting | Required? | What it does | What to enter |
-| ------- | --------- | ------------ | ------------- |
-
-Explain important settings including, where applicable:
-
-- PostgreSQL connection
-- VPS Advisor URL
-- VPS Advisor service token
-- RIPE RIS source
-- RIPE data cache
-- RIPE data freshness
-- MaxMind GeoIP
-- snapshot signing key
+- API compatibility
+- snapshot compatibility
 - worker compatibility
-- target limits
-- snapshot sanity checks
-- snapshot retention
-- artifact/object storage
+- configuration migration requirements
+- upgrade requirements
 
-Use the actual configuration variables implemented by the project.
-
-Do not invent configuration values.
+Do not claim compatibility unless verified.
 
 ---
 
-# 9. Separate Simple Configuration From Advanced Configuration
+# 25. Tests
 
-The beginner installation guide should only expose the settings that an ordinary operator needs.
+Add comprehensive automated tests.
 
-If there are advanced settings, do not overwhelm the installation guide.
+At minimum cover:
 
-Create or retain a separate configuration reference containing:
+## BGP
 
-- every configuration variable
-- defaults
-- accepted values
-- technical behaviour
-- advanced tuning
+- ASN prefix discovery
+- duplicate prefix removal
+- IPv4 address counting
+- prefix-size calculation
+- provider filtering
 
-The simplified guide should link to that reference.
+## GeoIP
+
+- country lookup
+- country aggregation
+- unknown location handling
+- IPv4 percentage calculation
+
+## Geographic monitoring
+
+- provider with one country
+- provider with multiple countries
+- country with no successful probes
+- country with insufficient workers
+- country with partial probe coverage
+
+## API
+
+Verify that:
+
+- global metrics remain available;
+- country/network information is returned;
+- timestamps are correct;
+- provider IDs are correct;
+- confidence/verdict values remain coherent.
+
+## Builder
+
+Test:
+
+- geographic artifact generation
+- snapshot publication
+- configuration loading
+- Caddy port configuration
+- existing default behaviour
+
+## CLI
+
+Test:
+
+- reconfiguration
+- repeated reconfiguration
+- existing configuration preservation
+- default values
+- secret handling
+- validation failures
+- reinstall behaviour if implemented
 
 ---
 
-# 10. Builder Installation Should Be Linear
+# 26. Performance Considerations
 
-The main installation guide should not force the reader to jump between multiple documents.
-
-The basic journey should be continuous.
+Do not implement geographic enrichment by expanding every large prefix into millions of individual IP addresses unless the existing architecture explicitly requires it.
 
 For example:
-
-## Step 1
-
-Prepare the VPS.
-
-## Step 2
-
-Download the project.
-
-## Step 3
-
-Generate the signing key.
-
-## Step 4
-
-Configure the builder.
-
-## Step 5
-
-Start the builder.
-
-## Step 6
-
-Run the first build.
-
-## Step 7
-
-Verify the result.
-
-## Step 8
-
-Enable automatic execution.
-
-## Step 9
-
-Learn how to update it.
-
-## Step 10
-
-Troubleshoot common problems.
-
-Advanced documentation may be linked where necessary.
-
----
-
-# 11. Explain Commands
-
-Every command in beginner-facing documentation should have a short explanation.
-
-Do not provide unexplained blocks of commands.
-
-For example:
-
-```bash
-docker --version
-```
-
-Then explain:
-
-> This confirms that Docker is installed correctly. You should see the installed Docker version.
-
-Keep explanations concise.
-
----
-
-# 12. Verification After Major Steps
-
-Where practical, every important installation step should have a verification command.
-
-Examples:
-
-- Docker installed
-- repository downloaded
-- signing key generated
-- configuration accepted
-- builder starts
-- database connection works
-- RIPE data downloaded
-- snapshot generated
-- snapshot signed
-- snapshot published
-- automatic schedule enabled
-
-The user should never reach the end of the guide without knowing whether the installation succeeded.
-
----
-
-# 13. Troubleshooting
-
-Keep troubleshooting beginner-friendly.
-
-Cover the most likely problems.
-
-Examples:
-
-- Docker is unavailable
-- repository cannot be cloned
-- configuration validation fails
-- PostgreSQL connection fails
-- VPS Advisor authentication fails
-- RIPE RIS download fails
-- MaxMind database is unavailable
-- snapshot generation fails
-- sanity check blocks publication
-- signing verification fails
-- systemd timer is not running
-
-For every issue explain:
-
-1. What the problem usually means.
-2. What to check.
-3. What command to run.
-4. What a healthy result looks like.
-5. What to do next.
-
-Link to advanced troubleshooting/runbooks when appropriate.
-
----
-
-# 14. Keep Architecture Documentation Separate
-
-Do not duplicate the complete builder architecture inside the simplified installation guide.
-
-The installation guide may briefly explain:
-
-> The builder downloads routing information, processes it, creates a signed snapshot, and publishes it for workers.
-
-Then link to the architecture documentation for readers who want to understand:
-
-- RIPE RIS
-- MRT
-- ASN
-- prefix extraction
-- deduplication
-- enrichment
-- validation
-- signing
-- publication
-
----
-
-# 15. Consolidate Related Documentation
-
-Audit the entire `docs/` directory for opportunities to merge related content.
-
-Look particularly for documents that duplicate:
-
-- installation instructions
-- deployment instructions
-- configuration
-- monitoring
-- security
-- worker setup
-- API integration
-- architecture explanations
-- operational procedures
-
-Where appropriate, consolidate them into a stronger document.
-
-Do not create unnecessary hierarchy.
-
-The documentation tree should be understandable at a glance.
-
----
-
-# 16. Preserve Important Technical Documentation
-
-Do not simplify everything.
-
-The project still needs comprehensive technical references.
-
-Keep detailed documentation for:
-
-- architecture
-- database
-- API contracts
-- security/trust model
-- lifecycle
-- deployment
-- risk assessment
-- operations
-- monitoring
-- backups
-- recovery
-- upgrades
-- load testing
-- development
-- integration
-
-The goal is not to remove technical depth.
-
-The goal is to put technical depth in the correct place.
-
----
-
-# 17. Documentation Navigation
-
-After consolidation:
-
-- update `README.md` files
-- update internal links
-- remove broken links
-- remove references to deleted documents
-- update navigation
-- ensure every document is discoverable
-- ensure there are no orphaned documents
-- ensure terminology is consistent
-
-A user should be able to navigate from:
-
-Documentation Home
-
-→ Getting Started
-
-→ Builder
-
-→ Worker
-
-→ VPS Advisor Integration
-
-→ Operations
-
-→ Reference
-
-without encountering duplicate or contradictory information.
-
----
-
-# 18. Terminology Consistency
-
-Use the project's actual terminology consistently.
-
-Do not alternate unnecessarily between:
-
-- builder / routing builder / collector
-- worker / community worker
-- snapshot / routing snapshot
-- VPS Advisor / Advisor
-- RIPE RIS / RIPE
-- monitoring platform / network intelligence platform
-
-Where multiple terms are valid, establish the preferred term and use it consistently.
-
-Update the glossary where necessary.
-
----
-
-# 19. Do Not Hide Important Operational Details
-
-Even though the builder installation guide is simplified, it must still clearly explain:
-
-- what credentials are required
-- what secrets must be protected
-- what data is downloaded
-- where snapshots are stored
-- how snapshots are published
-- how often the builder runs
-- how workers consume snapshots
-- how to verify successful operation
-- how to recover from failures
-
-Simplify the explanation, not the truth.
-
----
-
-# 20. Documentation Quality Audit
-
-After restructuring the documentation:
-
-Check for:
-
-- duplicate explanations
-- contradictory instructions
-- outdated commands
-- broken links
-- incorrect paths
-- stale environment variables
-- obsolete architecture descriptions
-- inconsistent terminology
-- missing prerequisites
-- undocumented required credentials
-- unexplained commands
-- excessive technical depth in beginner guides
-
-Fix these issues.
-
----
-
-# 21. Do Not Generate Documentation From Assumptions
-
-The repository is the source of truth for implementation-specific information.
-
-Before documenting something, verify it in the project.
-
-If the documentation currently says one thing but the implementation does another:
-
-- determine the actual current behaviour
-- update the documentation accordingly
-- clearly identify significant discrepancies in your final report
-
-Do not silently invent a solution.
-
----
-
-# 22. Final Documentation Structure
-
-After consolidation, the documentation should have a clean information architecture.
-
-You may change the existing structure if necessary.
-
-Prefer something conceptually similar to:
 
 ```text
-docs/
-├── README.md
-├── getting-started/
-├── concepts/
-├── architecture/
-├── builder/
-├── worker/
-├── integration/
-├── operations/
-├── development/
-├── reference/
-└── demos/
+10.0.0.0/8
 ```
 
-This is guidance, not a rigid requirement.
+contains over 16 million IPv4 addresses.
 
-Use your judgment based on the actual contents of the repository.
+The system should operate efficiently on network prefixes and address ranges.
 
-The important requirement is that related information is grouped logically and redundant documents are merged.
+Use the existing architecture's most efficient representation for:
 
----
+- prefix size
+- GeoIP lookup
+- country aggregation
+- target selection
 
-# 23. Final Builder Installation Standard
-
-The final simplified builder guide should allow a non-technical operator to go from:
-
-> Fresh VPS
-
-to:
-
-> Running builder + successfully published signed routing snapshot
-
-without requiring assistance from a developer.
-
-The guide should be practical, sequential, concise, and reassuring.
-
-Avoid unnecessary jargon.
-
-Use copy-and-paste commands.
-
-Explain what each step accomplishes.
-
-Provide verification after important steps.
-
-Provide clear warnings for secrets.
-
-Provide troubleshooting when something fails.
+The geographic aggregation must scale to the number of prefixes expected from real-world ASNs.
 
 ---
 
-# 24. Final Deliverables
+# 27. Data Integrity
 
-After completing the documentation work:
+Ensure that geographic aggregation does not introduce duplicate address-space counting.
 
-1. Consolidate related documentation.
-2. Rewrite the builder installation experience.
-3. Update the documentation navigation.
-4. Update all affected internal links.
-5. Remove redundant documentation where appropriate.
-6. Preserve comprehensive technical references.
-7. Ensure the simplified builder guide is the recommended beginner path.
-8. Ensure configuration reference remains comprehensive.
-9. Ensure architecture documentation remains technically detailed.
-10. Ensure there are no contradictory instructions.
+Pay particular attention to:
 
-Finally, provide a concise implementation report containing:
+- overlapping prefixes
+- duplicate BGP observations
+- multiple AS paths
+- multiple peers
+- more-specific prefixes
+- less-specific prefixes
+- withdrawn routes
+- stale routes
+- prefixes belonging to other ASNs
 
-### Documentation merged
+The final provider network set must reflect the intended BGP selection/filtering rules already established by the project.
 
-List documents that were consolidated.
+Do not casually change route-selection semantics.
 
-### Documentation removed
+---
 
-List documents that became unnecessary.
+# 28. Do Not Make the ASN the Geographic Record
 
-### Documentation created
+An ASN can announce network space in many countries.
 
-List genuinely new documents.
+Therefore:
 
-### Documentation rewritten
+```text
+ASN → Country
+```
 
-List major documents significantly rewritten.
+is not an adequate data model.
 
-### Important discrepancies found
+The relationship is closer to:
 
-List any differences discovered between existing documentation and the actual implementation.
+```text
+ASN
+ └── Prefix
+      └── Address space
+           └── GeoIP location
+                └── Country
+```
 
-### Remaining documentation gaps
+Monitoring targets should then be associated with the relevant network/country context.
 
-List anything that could not be documented accurately because the implementation does not currently provide enough information.
+---
 
-Do not modify application code unless a documentation problem reveals a genuine implementation inconsistency that must be reported.
+# 29. Inspect Existing Implementation Before Changing It
+
+Before implementation:
+
+1. inspect the builder;
+2. inspect the routing snapshot schema;
+3. inspect the BGP parser;
+4. inspect prefix deduplication;
+5. inspect MaxMind integration;
+6. inspect target derivation;
+7. inspect worker probing;
+8. inspect measurement storage;
+9. inspect aggregation;
+10. inspect artifact publishing;
+11. inspect coordinator API;
+12. inspect VPS Advisor integration;
+13. inspect the existing CLI;
+14. inspect Docker Compose;
+15. inspect `.env` handling;
+16. inspect documentation;
+17. inspect the two mock images.
+
+Identify exactly where the current implementation loses geographic information.
+
+Do not simply add a new parallel pipeline.
+
+Prefer extending the existing pipeline where appropriate.
+
+---
+
+# 30. Preserve Existing Architecture
+
+The following existing capabilities must continue working:
+
+- RIPE RIS collection
+- BGP parsing
+- prefix deduplication
+- provider ASN retrieval
+- snapshot generation
+- snapshot signing
+- artifact publishing
+- worker registration
+- worker authentication
+- worker approval
+- worker probing
+- measurement reporting
+- aggregation
+- VPS Advisor integration
+- Docker deployment
+- PostgreSQL
+- object storage
+
+Do not regress existing functionality.
+
+---
+
+# 31. Final Validation
+
+Before considering this task complete, perform an end-to-end test using a real or representative provider ASN.
+
+Use **AS200019** as the primary validation case if the required data is available in the project's test/development environment.
+
+The expected pipeline should demonstrate:
+
+```text
+AS200019
+    ↓
+BGP prefixes
+    ↓
+deduplicated prefixes
+    ↓
+IPv4 address-space calculation
+    ↓
+MaxMind enrichment
+    ↓
+country distribution
+    ↓
+country monitoring targets
+    ↓
+worker probes
+    ↓
+country-level aggregation
+    ↓
+global aggregation
+    ↓
+published artifact/API
+```
+
+The resulting API must contain enough information to reproduce the intended data shown in:
+
+```text
+dev-files/mock/monitored-network.png
+dev-files/mock/regional-monitoring.png
+```
+
+Do not require the exact visual frontend implementation as part of this task.
+
+---
+
+# 32. Final Report
+
+After implementation, provide a detailed report containing:
+
+## Root Cause
+
+Explain why geographic information was missing from the current artifact/API.
+
+## Architecture Changes
+
+Explain how geographic information now flows through the system.
+
+## Data Model Changes
+
+Explain any changes to:
+
+- snapshots
+- artifacts
+- database models
+- API schemas
+- measurements
+
+## Monitoring Changes
+
+Explain:
+
+- target derivation
+- country association
+- country-level aggregation
+- global aggregation
+- confidence/verdict handling
+
+## Builder Changes
+
+Explain:
+
+- Caddy configuration
+- environment changes
+- build pipeline changes
+
+## CLI Changes
+
+Explain:
+
+- reconfigure/reinstall workflow
+- configuration preservation
+- secret handling
+
+## Documentation
+
+List every documentation file updated.
+
+## Changelog
+
+Summarize the changelog entry.
+
+## Tests
+
+List tests performed and their results.
+
+## Compatibility
+
+Clearly state:
+
+- worker compatibility
+- snapshot compatibility
+- API compatibility
+- upgrade requirements
+- migration requirements
+
+## Remaining Concerns
+
+Identify anything that still requires attention.
+
+---
+
+# 33. Most Important Principles
+
+Follow these principles throughout the implementation:
+
+1. **Investigate before changing code.**
+2. **Use the existing architecture wherever possible.**
+3. **Do not treat an ASN as a single geographic location.**
+4. **Use BGP-announced prefixes as the network source of truth.**
+5. **Use MaxMind to geographically enrich the announced address space.**
+6. **Calculate geographic distribution using actual IPv4 address counts, not prefix counts.**
+7. **Do not double-count duplicate or overlapping network data.**
+8. **Probe multiple targets rather than relying on one IP as a provider's source of truth.**
+9. **Aggregate monitoring results globally and geographically.**
+10. **Do not confuse network distribution with monitoring performance.**
+11. **Do not expose secrets.**
+12. **Make configuration idempotent.**
+13. **Make the builder easy to run alongside existing services.**
+14. **Do not break existing workers or snapshots unnecessarily.**
+15. **Update documentation and changelog as part of the implementation.**
+16. **Use the mockups as product requirements for the data that the backend must provide.**
+17. **Do not invent behaviour that is not supported by the existing architecture.**
+18. **Prefer a clean, maintainable implementation over a quick patch.**
+
+The end result should provide VPS Advisor with meaningful network intelligence such as:
+
+```text
+Provider
+  ├── Global network status
+  ├── IPv4 network distribution
+  │    ├── Moldova
+  │    ├── Netherlands
+  │    ├── United Kingdom
+  │    └── ...
+  ├── Regional monitoring status
+  │    ├── Moldova
+  │    ├── Netherlands
+  │    ├── United Kingdom
+  │    └── ...
+  └── Timestamped measurements
+```
+
+rather than only a single global record such as:
+
+```python
+{
+    "global": {
+        "metrics": {...},
+        "verdict": "insufficient_data",
+        "confidence": 0
+    }
+}
+```
+
+The primary objective is to make the monitoring platform capable of answering:
+
+> **Where does this provider's network exist, how much IPv4 space does it have in each country, and how is that network performing from the perspective of participating community workers?**

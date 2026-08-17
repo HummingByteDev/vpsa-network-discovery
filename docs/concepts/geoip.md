@@ -37,10 +37,40 @@ them with a standard Go MaxMind library (`internal/routing/geo`).
 ### Enriching prefixes (builder)
 
 When the [builder](../builder/README.md) extracts a provider's prefixes from
-[RIS data](ripe-and-ris.md), it looks each one up in GeoLite2-City and attaches
-`geo_country`, `geo_city`, and coordinates. This lets the platform reason about
-*where* a provider's network lives — e.g. "this block is announced from
-Frankfurt" — and later group verdicts by region.
+[RIS data](ripe-and-ris.md), it does two different things with GeoLite2-City.
+
+**1. It labels each prefix.** The prefix's first address is looked up, and the
+resulting `geo_country`, `geo_city` and coordinates are stored on the prefix
+row — the label shown next to a network ("this block is announced from
+Frankfurt").
+
+**2. It measures where the provider's address space actually is.** This is the
+number VPS Advisor renders as "66% of this provider's IPv4 space is in
+Moldova", and a first-address label is not good enough for it. Three rules make
+the count honest:
+
+- **Split at the database's own record boundaries.** A single announcement can
+  span several GeoIP records in different countries. The builder walks the
+  records *inside* each prefix and attributes each sub-range to the record
+  covering it. It never expands a prefix into individual addresses — a `/8`
+  costs no more than the number of records inside it.
+- **Count address space, never prefixes.** A `/20` is sixteen `/24`s. Shares
+  are `country_ipv4 ÷ total_ipv4 × 100`, computed from address counts.
+- **Count each address once.** Announcements nest: a provider announcing
+  `1.2.0.0/16` and `1.2.3.0/24` has announced 65 536 addresses, not 65 792.
+  Every prefix is counted only for the space no more-specific announcement of
+  the same provider covers — so a more-specific in a *different* country moves
+  address space between countries rather than inventing it.
+
+Address space no record places is attributed to the reserved code **`ZZ`**
+(unknown) and reported as such. It is never folded into a real country, and
+never quietly dropped from the total.
+
+The result is stored per snapshot in `routing.provider_geo` (see the
+[schema reference](../reference/database-schema.md#schema-routing)), and it is
+also what spreads probe targets across a provider's footprint: targets are
+allocated country by country, so a provider whose largest announcements are all
+in one country is still measurable in the smaller ones.
 
 ### Verifying workers (coordinator)
 
@@ -57,21 +87,44 @@ source IP. Looking that up in GeoLite2-ASN gives two things:
 
 ## Regional verdicts, made concrete
 
-Because prefixes and workers both carry geography, consensus can be computed per
-region, not just globally:
+Because every probe target carries the country of the address it represents,
+consensus is computed per country as well as globally — from the same votes, in
+the same pass:
 
 ```mermaid
 flowchart LR
-  P["Provider prefixes<br/>geolocated by builder"] --> AGG
-  W["Workers<br/>bucketed by region"] -->|"measurements tagged<br/>with worker region"| AGG
+  P["Provider prefixes<br/>geolocated by builder"] --> T["Probe targets<br/>country-tagged, spread<br/>across the footprint"]
+  T --> AGG
+  W["Community workers<br/>diverse source networks"] -->|"measurements"| AGG
   AGG["Aggregation engine"] --> G["Global verdict"]
-  AGG --> R1["eu-west: healthy"]
-  AGG --> R2["ap-south: insufficient_data"]
+  AGG --> R1["MD: healthy"]
+  AGG --> R2["NL: degraded"]
+  AGG --> R3["BG: insufficient_data"]
 ```
 
-A provider can be **healthy globally but degraded in one region** — exactly the
-nuance a prospective customer cares about ("great provider, but how is it from
-*where I am*?"). GeoIP is what makes that distinction possible.
+A provider can be **healthy globally but degraded in one country** — exactly the
+nuance a prospective customer cares about ("great provider, but how is it where
+I am?"). GeoIP is what makes that distinction possible.
+
+> **A region is the country of the address being measured, not of the worker
+> measuring it.** "Is AlexHost's Dutch capacity up?" is a question about
+> Dutch addresses; workers everywhere contribute to answering it, and the
+> diversity of *their* networks is what makes the answer trustworthy rather
+> than what defines the region.
+
+Two things are deliberately kept apart, and the
+[status document](../api/README.md#a4-results-ingestion-platform-pushes--idempotent)
+reports them separately:
+
+| | Comes from | Exists when nobody has probed? |
+|---|---|---|
+| **Network distribution** — where the addresses are | BGP + GeoIP | Yes |
+| **Monitoring results** — how they behave | community measurements | No |
+
+A country can hold most of a provider's address space and still have almost no
+measurement coverage. That is reported as `insufficient_data` with the coverage
+counts that explain it — never as an outage, and never averaged away into the
+global figure.
 
 ## Licensing and the independent update cadence
 

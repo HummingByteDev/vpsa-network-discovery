@@ -97,6 +97,49 @@ community enrollment — consensus needs a trustworthy baseline, and
 `VAPN_MIN_WORKERS` (default 3) is unreachable without one. See the
 [launch checklist](launch-checklist.md).
 
+## Running alongside another service
+
+The edge publishes ports 80 and 443 by default. On a machine that already
+serves something there, `docker compose up -d` fails with:
+
+```
+failed to bind host port 0.0.0.0:80/tcp: address already in use
+```
+
+Move the edge instead of the other service — both ports are configurable in
+`deploy/prod/.env`:
+
+```sh
+VAPN_CADDY_HTTP_PORT=8080
+VAPN_CADDY_HTTPS_PORT=443
+```
+
+Then `docker compose up -d` again. Host and container port are always set to
+the same value, and the same values are given to Caddy as its
+`http_port`/`https_port`, so Caddy knows the port the outside world reaches it
+on rather than being remapped behind its back.
+
+**What this costs you depends on which port you move**, because that is how
+Caddy proves it owns your domain:
+
+| You move | Certificates | Workers connect to |
+|---|---|---|
+| Neither (default) | Automatic (HTTP-01 and TLS-ALPN-01) | `https://probes.example.com` |
+| HTTP only | Automatic — TLS-ALPN-01 still runs on 443 | `https://probes.example.com` |
+| HTTPS (with or without HTTP) | **Not automatic.** Caddy skips a challenge whose port has moved | `https://probes.example.com:8443` |
+
+If you must move 443, you have two workable arrangements:
+
+1. **Put VAPN behind the proxy that owns 443** — terminate TLS there and
+   reverse-proxy `/api/v1/*` and `/admin/v1/*` to `127.0.0.1:$VAPN_CADDY_HTTP_PORT`.
+   That proxy's certificate serves the domain; VAPN's Caddy just routes.
+2. **Bring your own certificate** — mount it and add a `tls` directive to
+   `deploy/prod/Caddyfile`, or configure a DNS-01 challenge.
+
+In both cases, whatever address workers must use has to be the one they are
+given: it goes in `VAPN_COORDINATOR_URL` when they run `vapn install`, port
+included.
+
 ## Operational notes
 
 - **Health checks.** Every service self-reports; `docker compose ps` shows
