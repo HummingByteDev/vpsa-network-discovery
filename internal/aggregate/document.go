@@ -159,6 +159,9 @@ func (e *Engine) statusDocument(ctx context.Context, provider string, wins []win
 			r.Country, r.ContinentCode, r.Continent = m.name, m.continentCode, m.continentName
 			r.Coverage.TargetsTotal = m.targets
 		}
+		if r.Country == "" && w.region == unknownRegion {
+			r.Country = "Unknown"
+		}
 		doc.Regions = append(doc.Regions, r)
 	}
 	sort.Slice(doc.Regions, func(i, j int) bool { return doc.Regions[i].Region < doc.Regions[j].Region })
@@ -222,12 +225,12 @@ func (e *Engine) networkFootprint(ctx context.Context, provider string) (network
 	if err != nil {
 		return doc, meta, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var c countryDoc
 		if err := rows.Scan(&c.CountryCode, &c.Country, &c.ContinentCode, &c.Continent,
 			&c.IPv4Addresses, &c.IPv4SharePct, &c.IPv6Net64s,
 			&c.PrefixCountV4, &c.PrefixCountV6, &c.MonitoredTargets); err != nil {
+			rows.Close()
 			return doc, meta, err
 		}
 		if c.CountryCode == unknownRegion && c.Country == "" {
@@ -243,7 +246,37 @@ func (e *Engine) networkFootprint(ctx context.Context, provider string) (network
 			continentName: c.Continent, targets: c.MonitoredTargets,
 		}
 	}
-	return doc, meta, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return doc, meta, err
+	}
+
+	// Coverage counts come from the snapshot's own targets rather than from the
+	// distribution's target_count, so "how much could be measured here" stays
+	// truthful for a region the distribution does not describe — a snapshot
+	// built before geography existed, or one built without a GeoIP database,
+	// where every target lands in ZZ. Otherwise the document would report more
+	// targets measured than exist.
+	tgt, err := e.Pool.Query(ctx, `
+		select coalesce(nullif(geo_country, ''), $1), count(*)
+		from routing.probe_target
+		where snapshot_id = $2 and provider_id = $3
+		group by 1`, unknownRegion, *snapshotID, provider)
+	if err != nil {
+		return doc, meta, err
+	}
+	defer tgt.Close()
+	for tgt.Next() {
+		var code string
+		var n int
+		if err := tgt.Scan(&code, &n); err != nil {
+			return doc, meta, err
+		}
+		m := meta[code]
+		m.targets = n
+		meta[code] = m
+	}
+	return doc, meta, tgt.Err()
 }
 
 func (e *Engine) monitoredNetworks(ctx context.Context, provider string, meta map[string]countryMeta) ([]networkRow, error) {
@@ -268,7 +301,8 @@ func (e *Engine) monitoredNetworks(ctx context.Context, provider string, meta ma
 		}
 		if m, ok := meta[n.CountryCode]; ok {
 			n.Country, n.ContinentCode, n.Continent = m.name, m.continentCode, m.continentName
-		} else if n.CountryCode == unknownRegion {
+		}
+		if n.Country == "" && n.CountryCode == unknownRegion {
 			n.Country = "Unknown"
 		}
 		out = append(out, n)

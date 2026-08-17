@@ -93,6 +93,13 @@ document.
 - **Caddy port collision.** `docker compose up -d` failed with
   `failed to bind host port 0.0.0.0:80/tcp: address already in use` on any VM
   already serving port 80, with no supported way to change it.
+- **Regional coverage counts could exceed the targets that exist.**
+  `coverage.targets_total` was read only from the country distribution, so a
+  region the distribution does not describe — every region, while the published
+  snapshot predates this release — reported `targets_total: 0` alongside a
+  non-zero `targets_measured`. It is now counted from the published snapshot's
+  probe targets, and the `ZZ` region is labelled `"Unknown"` in `regions[]` as
+  it already was in `networks[]`.
 - **Snapshot pruning failed on any platform that had scheduled work.** Closed
   assignments and their released leases reference a snapshot's probe targets, so
   `Publisher.Prune` hit `assignment_target_id_fkey` and every build after

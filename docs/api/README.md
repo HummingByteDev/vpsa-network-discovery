@@ -185,6 +185,10 @@ apart:
   footprint is `network.countries`.
 - **A country with no measurements has no `regions[]` entry at all** — it still
   appears under `network.countries`. Absence means "not measured", not "down".
+- **`coverage.targets_total` counts the probe targets the published snapshot
+  holds in that region**, so `targets_measured` never exceeds it. A snapshot
+  built before this release — or by a builder with no GeoIP database — places
+  every target in `ZZ`, which is then the only region reported.
 - **Backwards compatible:** `provider_id`, `as_of` and `global` are unchanged
   from earlier releases; `regions`, `network` and `networks` are additive. A
   consumer reading only `global` keeps working.

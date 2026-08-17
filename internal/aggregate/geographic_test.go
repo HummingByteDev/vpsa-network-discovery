@@ -358,6 +358,114 @@ func TestStatusDocument(t *testing.T) {
 	}
 }
 
+// A snapshot that carries no geography — one built before the distribution
+// existed, or by a builder with no GeoIP database — puts every target in ZZ and
+// describes no countries. The document must stay internally consistent: it may
+// say "I do not know where this is", but it must never claim more targets were
+// measured than the snapshot contains.
+func TestSnapshotWithoutGeographyReportsHonestCoverage(t *testing.T) {
+	p := setupDB(t)
+	ctx := context.Background()
+	for _, stmt := range []string{
+		"truncate aggregation.target_status",
+		"truncate routing.probe_target, routing.provider_geo, routing.prefix, routing.snapshot cascade",
+	} {
+		if _, err := p.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var snapshotID int64
+	if err := p.QueryRow(ctx, `insert into routing.snapshot
+		(version, source_uri, source_timestamp, status, asn_count,
+		 prefix_count_v4, prefix_count_v6, built_at, published_at)
+		values ('pre-geo', 'test', now(), 'published', 1, 2, 0, now(), now())
+		returning id`).Scan(&snapshotID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Exec(ctx, `insert into routing.asn
+		(asn, provider_id, registry_name, synced_at) values (64500, $1, 'Test', now())`,
+		provider); err != nil {
+		t.Fatal(err)
+	}
+	for _, pfx := range []struct{ prefix, target string }{
+		{"185.0.0.0/24", "185.0.0.1"},
+		{"185.1.0.0/24", "185.1.0.1"},
+	} {
+		var prefixID int64
+		if err := p.QueryRow(ctx, `insert into routing.prefix
+			(snapshot_id, prefix, origin_asn) values ($1, $2, 64500) returning id`,
+			snapshotID, pfx.prefix).Scan(&prefixID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Exec(ctx, `insert into routing.probe_target
+			(snapshot_id, provider_id, prefix_id, address, rationale)
+			values ($1, $2, $3, $4, 'test')`,
+			snapshotID, provider, prefixID, pfx.target); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	e := engine(p, 3)
+	e.Cfg.TargetWindow = 365 * 24 * time.Hour
+	for _, w := range seedWorkers(t, p, 3) {
+		observe(t, p, w, "185.0.0.1", true, 20, 6)
+		observe(t, p, w, "185.1.0.1", true, 30, 6)
+	}
+	if err := e.ComputeWindow(ctx, windowStart); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.RollupStatus(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw []byte
+	if err := p.QueryRow(ctx, `select payload from aggregation.publication_outbox
+		where kind = 'provider_status' order by id desc limit 1`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Regions []struct {
+			Region   string `json:"region"`
+			Country  string `json:"country"`
+			Coverage struct {
+				TargetsTotal    int `json:"targets_total"`
+				TargetsMeasured int `json:"targets_measured"`
+			} `json:"coverage"`
+		} `json:"regions"`
+		Network struct {
+			Countries []struct {
+				CountryCode string `json:"country_code"`
+			} `json:"countries"`
+		} `json:"network"`
+		Networks []struct {
+			CountryCode string `json:"country_code"`
+			Country     string `json:"country"`
+		} `json:"networks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(doc.Regions) != 1 || doc.Regions[0].Region != unknownRegion {
+		t.Fatalf("regions = %+v, want a single ZZ region", doc.Regions)
+	}
+	if doc.Regions[0].Country != "Unknown" {
+		t.Errorf("ZZ region country = %q, want Unknown", doc.Regions[0].Country)
+	}
+	if c := doc.Regions[0].Coverage; c.TargetsTotal != 2 || c.TargetsMeasured != 2 {
+		t.Errorf("coverage = %+v, want 2 of 2 — measured must never exceed total", c)
+	}
+	// No geography must never be reported as a country.
+	if len(doc.Network.Countries) != 0 {
+		t.Errorf("network countries = %+v, want none", doc.Network.Countries)
+	}
+	for _, n := range doc.Networks {
+		if n.CountryCode != unknownRegion || n.Country != "Unknown" {
+			t.Errorf("monitored network placed at %q/%q, want ZZ/Unknown", n.CountryCode, n.Country)
+		}
+	}
+}
+
 // TestPartialCountryCoverage: half a country's targets answering is a degraded
 // country, not a healthy one and not an outage.
 func TestPartialCountryCoverage(t *testing.T) {
